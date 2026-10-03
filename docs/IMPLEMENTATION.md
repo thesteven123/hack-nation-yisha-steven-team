@@ -13,12 +13,13 @@ This is a modular hackathon starter, not a full implementation of every agent an
 - Scientist interpretation records stored separately from deterministic critic verdicts; each is audit logged and can be revised without overwriting history.
 - Versioned ResearchBrief editing, structured hypotheses, explicit protocol review, and links from approved hypotheses to proposals. Brief edits make existing proposals stale and invalidate old hypothesis links.
 - Public-page Firecrawl adapter with URL/SSRF guardrails, source-quality metadata, immutable captured Markdown, hash verification, a pending review queue, and explicit human approve/reject actions. Captured sources are labeled as external prior evidence for method design only.
-- Focused tests for validation, wrappers, repository approval, critic grouping, upload preservation/review, decision scope, interpretation history, target-version authorization, and mocked evidence capture.
+- Immutable evidence snapshots recording the selected Moss document, approved evidence, finished experiment, and critic-report IDs plus the active ResearchBrief version. Snapshot rows are append-only and can be linked to proposals or decision cards only within the same project and brief version.
+- Isolated optional Moss adapter for explicit corpus sync and project-scoped semantic/hybrid search. The curated corpus excludes raw uploaded datasets; syncing and querying are user-triggered, and retrieved IDs can be frozen into snapshots.
+- Focused tests for validation, wrappers, repository approval, critic grouping, upload preservation/review, decision scope, interpretation history, target-version authorization, evidence capture, immutable snapshots, and mocked Moss retrieval.
 
 ## Next slices — do not bundle into one change
 
-1. **Evidence snapshots and retrieval:** persist the exact evidence/run/critic IDs and ResearchBrief version behind each recommendation; add Moss indexing/search behind a separate adapter. Add Bright Data only if source discovery or fallback is needed.
-2. **Agent layer:** start with constrained research/planning outputs validated by deterministic services. Agents must not execute shell commands or self-authorize experiments.
-3. **Narration and presentation:** optional ElevenLabs narration of validated results, then polish the dashboard and demo flow.
+1. **Agent layer:** start with constrained research/planning outputs validated by deterministic services. Agents must not execute shell commands or self-authorize experiments.
+2. **Narration and presentation:** optional ElevenLabs narration of validated results, then polish the dashboard and demo flow.
 
-For each slice: read the matching design-spec sections, change only the necessary module(s), add focused tests, and verify before starting the next slice. Firecrawl is the only external adapter wired into this slice; its API key is optional for initial use.
+For each slice: read the matching design-spec sections, change only the necessary module(s), add focused tests, and verify before starting the next slice. Firecrawl works without a key for initial use; Moss requires the optional `retrieval` extra plus `MOSS_PROJECT_ID` and `MOSS_PROJECT_KEY`.

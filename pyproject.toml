@@ -16,6 +16,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8,<10"]
+retrieval = ["moss>=1.9,<2"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

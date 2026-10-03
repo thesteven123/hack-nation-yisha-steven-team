@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import sqlite3
 import uuid
@@ -27,6 +28,66 @@ def json_text(value) -> str:
 
 def new_id(prefix: str) -> str:
     return f"{prefix}-{uuid.uuid4().hex[:10].upper()}"
+
+
+def _reference_ids(values, label: str, maximum: int = 250) -> list[str]:
+    if values is None:
+        return []
+    if not isinstance(values, (list, tuple)) or len(values) > maximum:
+        raise ValueError(f"{label} must be a list of at most {maximum} IDs.")
+    normalized = []
+    for value in values:
+        if not isinstance(value, str) or not value.strip() or len(value) > 256:
+            raise ValueError(f"Every {label} entry must be a nonempty ID under 256 characters.")
+        normalized.append(value.strip())
+    if len(set(normalized)) != len(normalized):
+        raise ValueError(f"{label} cannot contain duplicate IDs.")
+    return normalized
+
+
+def _normalize_retrieved_hits(values, document_ids: list[str], project_id: str) -> list[dict]:
+    if values is None:
+        return []
+    if not isinstance(values, (list, tuple)) or len(values) > 25:
+        raise ValueError("A snapshot can preserve at most 25 Moss search hits.")
+    normalized = []
+    seen = set()
+    for hit in values:
+        if not isinstance(hit, dict):
+            raise ValueError("Each Moss search hit must be a record.")
+        document_id = hit.get("id")
+        text = hit.get("text")
+        score = hit.get("score")
+        metadata = hit.get("metadata") or {}
+        if not isinstance(document_id, str) or document_id not in document_ids or document_id in seen:
+            raise ValueError("Retrieved hits must uniquely match the selected Moss document IDs.")
+        if not isinstance(text, str) or not text.strip() or len(text) > 50_000:
+            raise ValueError("Retrieved hit text must be nonempty and under 50,000 characters.")
+        if isinstance(score, bool) or not isinstance(score, (int, float)) or not math.isfinite(score) or not 0 <= score <= 1:
+            raise ValueError("Retrieved hit scores must be finite values from 0 to 1.")
+        if not isinstance(metadata, dict) or metadata.get("project_id") != project_id:
+            raise ValueError("Retrieved hits must be scoped to this project.")
+        normalized_metadata = {
+            key: metadata[key]
+            for key in (
+                "record_type", "title", "source_url", "source_type", "evidence_id",
+                "experiment_run_id", "experiment_run_ids_json", "critic_report_id",
+                "decision_id", "hypothesis_id", "research_brief_version", "status",
+            )
+            if isinstance(metadata.get(key), (str, int, float, bool))
+        }
+        normalized.append(
+            {
+                "id": document_id,
+                "score": float(score),
+                "text": text,
+                "metadata": normalized_metadata,
+            }
+        )
+        seen.add(document_id)
+    if seen != set(document_ids):
+        raise ValueError("Each selected Moss document must have its matching retrieved hit.")
+    return normalized
 
 
 class Repository:
@@ -63,6 +124,19 @@ class Repository:
             connection.execute(
                 "UPDATE evidence_cards SET approval_status = 'approved' WHERE approved_by IS NOT NULL AND approval_status = 'pending_review'"
             )
+            snapshot_columns = {row["name"] for row in connection.execute("PRAGMA table_info(evidence_snapshots)")}
+            snapshot_migrations = {
+                "research_brief_version": "INTEGER NOT NULL DEFAULT 1",
+                "moss_document_ids_json": "TEXT NOT NULL DEFAULT '[]'",
+                "retrieved_hits_json": "TEXT NOT NULL DEFAULT '[]'",
+                "context_note": "TEXT",
+            }
+            for column, definition in snapshot_migrations.items():
+                if column not in snapshot_columns:
+                    connection.execute(f"ALTER TABLE evidence_snapshots ADD COLUMN {column} {definition}")
+            proposal_columns = {row["name"] for row in connection.execute("PRAGMA table_info(experiment_proposals)")}
+            if "evidence_snapshot_id" not in proposal_columns:
+                connection.execute("ALTER TABLE experiment_proposals ADD COLUMN evidence_snapshot_id TEXT REFERENCES evidence_snapshots(id)")
             existing = connection.execute("SELECT id FROM research_projects LIMIT 1").fetchone()
             if existing:
                 return
@@ -253,6 +327,7 @@ class Repository:
         config: dict,
         project_id: str | None = None,
         hypothesis_id: str | None = None,
+        evidence_snapshot_id: str | None = None,
     ) -> str:
         project_id = project_id or self.get_project_id()
         brief = self.get_active_brief(project_id)
@@ -267,6 +342,7 @@ class Repository:
                     raise ValueError("Only a scientist-approved hypothesis from this project can be linked.")
                 if hypothesis["brief_version"] != brief["version"]:
                     raise ValueError("This hypothesis refers to an older ResearchBrief; create and approve a current one.")
+            self._validate_snapshot_link(connection, evidence_snapshot_id, project_id, brief["version"])
             used = connection.execute(
                 "SELECT COUNT(*) AS total FROM experiment_runs WHERE project_id = ?", (project_id,)
             ).fetchone()["total"]
@@ -274,8 +350,8 @@ class Repository:
                 raise ValueError("The active ResearchBrief experiment budget has been reached.")
             proposal_id = new_id("PROP")
             connection.execute(
-                "INSERT INTO experiment_proposals (id, project_id, hypothesis_id, research_brief_version, config_json, status, proposed_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (proposal_id, project_id, hypothesis_id, brief["version"], json_text(config), "proposed", "scientist", utc_now()),
+                "INSERT INTO experiment_proposals (id, project_id, evidence_snapshot_id, hypothesis_id, research_brief_version, config_json, status, proposed_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (proposal_id, project_id, evidence_snapshot_id, hypothesis_id, brief["version"], json_text(config), "proposed", "scientist", utc_now()),
             )
             self._audit(
                 connection,
@@ -284,7 +360,7 @@ class Repository:
                 proposal_id,
                 "proposed",
                 "human",
-                {"config": config, "hypothesis_id": hypothesis_id},
+                {"config": config, "hypothesis_id": hypothesis_id, "evidence_snapshot_id": evidence_snapshot_id},
             )
         return proposal_id
 
@@ -475,6 +551,7 @@ class Repository:
         decision_id = new_id("DR")
         now = utc_now()
         with self.connect() as connection:
+            self._validate_snapshot_link(connection, evidence_snapshot_id, project_id, brief["version"])
             connection.execute(
                 "INSERT INTO decision_records (id, project_id, question, decision_type, status, evidence_snapshot_id, pre_brief_version, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (decision_id, project_id, question.strip(), decision_type.strip(), "pending", evidence_snapshot_id, brief["version"], "scientist", now),
@@ -629,6 +706,158 @@ class Repository:
         answer["scope"] = json.loads(answer.pop("scope_json"))
         return answer
 
+
+    def create_evidence_snapshot(
+        self,
+        project_id: str | None = None,
+        moss_query: str | None = None,
+        moss_document_ids: list[str] | None = None,
+        retrieved_hits: list[dict] | None = None,
+        source_ids: list[str] | None = None,
+        experiment_ids: list[str] | None = None,
+        critic_report_ids: list[str] | None = None,
+        context_note: str | None = None,
+    ) -> dict:
+        project_id = project_id or self.get_project_id()
+        if context_note is not None and (not isinstance(context_note, str) or len(context_note) > 2_000):
+            raise ValueError("Snapshot context note must be text no longer than 2,000 characters.")
+        context_note = context_note.strip() if isinstance(context_note, str) else None
+        if context_note == "":
+            context_note = None
+        if moss_query is not None and (not isinstance(moss_query, str) or len(moss_query) > 2_000):
+            raise ValueError("Moss query must be text no longer than 2,000 characters.")
+        moss_query = moss_query.strip() if isinstance(moss_query, str) else None
+        if moss_query == "":
+            moss_query = None
+        moss_document_ids = _reference_ids(moss_document_ids, "Moss document IDs")
+        retrieved_hits = _normalize_retrieved_hits(retrieved_hits, moss_document_ids, project_id)
+        source_ids = _reference_ids(source_ids, "evidence IDs")
+        experiment_ids = _reference_ids(experiment_ids, "experiment IDs")
+        critic_report_ids = _reference_ids(critic_report_ids, "critic report IDs", maximum=25)
+        if moss_document_ids and not moss_query:
+            raise ValueError("A Moss search query is required when recording returned document IDs.")
+        if bool(moss_document_ids) != bool(retrieved_hits):
+            raise ValueError("Moss snapshots must preserve the exact retrieved hits for every selected document ID.")
+        if not any((moss_document_ids, source_ids, experiment_ids, critic_report_ids)):
+            raise ValueError("An evidence snapshot must include at least one approved source, finished run, critic report, or Moss result.")
+
+        snapshot_id = new_id("SNAP")
+        created_at = utc_now()
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            brief_row = connection.execute(
+                "SELECT brief_json FROM research_brief_versions WHERE project_id = ? ORDER BY version DESC LIMIT 1",
+                (project_id,),
+            ).fetchone()
+            if brief_row is None:
+                raise KeyError(f"Unknown project or ResearchBrief: {project_id}")
+            brief_version = int(json.loads(brief_row["brief_json"])["version"])
+
+            if source_ids:
+                placeholders = ",".join("?" for _ in source_ids)
+                rows = connection.execute(
+                    f"SELECT id FROM evidence_cards WHERE project_id = ? AND approval_status = 'approved' AND id IN ({placeholders})",
+                    (project_id, *source_ids),
+                ).fetchall()
+                if len(rows) != len(source_ids):
+                    raise ValueError("Snapshots can include only approved evidence cards from this project.")
+
+            if critic_report_ids:
+                placeholders = ",".join("?" for _ in critic_report_ids)
+                reports = connection.execute(
+                    f"SELECT id, experiment_run_ids_json FROM critic_reports WHERE project_id = ? AND id IN ({placeholders})",
+                    (project_id, *critic_report_ids),
+                ).fetchall()
+                if len(reports) != len(critic_report_ids):
+                    raise ValueError("Every critic report must belong to this project.")
+                for report in reports:
+                    for run_id in json.loads(report["experiment_run_ids_json"]):
+                        if run_id not in experiment_ids:
+                            experiment_ids.append(run_id)
+
+            if len(experiment_ids) > 250:
+                raise ValueError("A snapshot cannot reference more than 250 experiment runs.")
+            if experiment_ids:
+                placeholders = ",".join("?" for _ in experiment_ids)
+                runs = connection.execute(
+                    f"SELECT id, status FROM experiment_runs WHERE project_id = ? AND id IN ({placeholders})",
+                    (project_id, *experiment_ids),
+                ).fetchall()
+                if len(runs) != len(experiment_ids):
+                    raise ValueError("Every experiment run must belong to this project.")
+                unfinished = [run["id"] for run in runs if run["status"] not in {"completed", "failed"}]
+                if unfinished:
+                    raise ValueError("Snapshots can reference only completed or failed runs.")
+
+            connection.execute(
+                "INSERT INTO evidence_snapshots (id, project_id, research_brief_version, moss_query, context_note, moss_document_ids_json, retrieved_hits_json, source_ids_json, experiment_ids_json, critic_report_ids_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    snapshot_id,
+                    project_id,
+                    brief_version,
+                    moss_query,
+                    context_note,
+                    json_text(moss_document_ids),
+                    json_text(retrieved_hits),
+                    json_text(source_ids),
+                    json_text(experiment_ids),
+                    json_text(critic_report_ids),
+                    created_at,
+                ),
+            )
+            self._audit(
+                connection,
+                project_id,
+                "evidence_snapshot",
+                snapshot_id,
+                "created_immutable_snapshot",
+                "human",
+                {
+                    "research_brief_version": brief_version,
+                    "context_note": context_note,
+                    "moss_document_ids": moss_document_ids,
+                    "source_ids": source_ids,
+                    "experiment_ids": experiment_ids,
+                    "critic_report_ids": critic_report_ids,
+                },
+            )
+        return self.get_evidence_snapshot(snapshot_id)
+
+    def get_evidence_snapshot(self, snapshot_id: str) -> dict:
+        with self.connect() as connection:
+            row = connection.execute("SELECT * FROM evidence_snapshots WHERE id = ?", (snapshot_id,)).fetchone()
+        if row is None:
+            raise KeyError(f"Unknown evidence snapshot: {snapshot_id}")
+        snapshot = dict(row)
+        for field in ("moss_document_ids_json", "retrieved_hits_json", "source_ids_json", "experiment_ids_json", "critic_report_ids_json"):
+            snapshot[field.removesuffix("_json")] = json.loads(snapshot.pop(field))
+        return snapshot
+
+    def list_evidence_snapshots(self, project_id: str | None = None, limit: int = 50) -> list[dict]:
+        project_id = project_id or self.get_project_id()
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 200:
+            raise ValueError("Snapshot list limit must be from 1 to 200.")
+        with self.connect() as connection:
+            rows = connection.execute(
+                "SELECT id FROM evidence_snapshots WHERE project_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?",
+                (project_id, limit),
+            ).fetchall()
+        return [self.get_evidence_snapshot(row["id"]) for row in rows]
+
+    @staticmethod
+    def _validate_snapshot_link(connection, snapshot_id: str | None, project_id: str, brief_version: int) -> None:
+        if snapshot_id is None:
+            return
+        if not isinstance(snapshot_id, str) or not snapshot_id.strip():
+            raise ValueError("Evidence snapshot ID must be a nonempty ID.")
+        snapshot = connection.execute(
+            "SELECT project_id, research_brief_version FROM evidence_snapshots WHERE id = ?",
+            (snapshot_id,),
+        ).fetchone()
+        if snapshot is None or snapshot["project_id"] != project_id:
+            raise ValueError("Evidence snapshot must belong to this project.")
+        if snapshot["research_brief_version"] != brief_version:
+            raise ValueError("Evidence snapshot refers to a different ResearchBrief version.")
 
     def add_evidence_card(self, record: dict) -> None:
         required = {

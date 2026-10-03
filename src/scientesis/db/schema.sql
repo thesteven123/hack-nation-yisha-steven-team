@@ -68,12 +68,28 @@ CREATE TABLE IF NOT EXISTS evidence_cards (
 CREATE TABLE IF NOT EXISTS evidence_snapshots (
     id TEXT PRIMARY KEY,
     project_id TEXT NOT NULL REFERENCES research_projects(id),
+    research_brief_version INTEGER NOT NULL,
     moss_query TEXT,
+    context_note TEXT,
+    moss_document_ids_json TEXT NOT NULL,
+    retrieved_hits_json TEXT NOT NULL DEFAULT '[]',
     source_ids_json TEXT NOT NULL,
     experiment_ids_json TEXT NOT NULL,
-    critic_report_ids_json TEXT,
+    critic_report_ids_json TEXT NOT NULL,
     created_at TEXT NOT NULL
 );
+
+CREATE TRIGGER IF NOT EXISTS evidence_snapshots_immutable_update
+BEFORE UPDATE ON evidence_snapshots
+BEGIN
+    SELECT RAISE(ABORT, 'Evidence snapshots are immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS evidence_snapshots_immutable_delete
+BEFORE DELETE ON evidence_snapshots
+BEGIN
+    SELECT RAISE(ABORT, 'Evidence snapshots are immutable');
+END;
 
 CREATE TABLE IF NOT EXISTS decision_records (
     id TEXT PRIMARY KEY,
@@ -130,6 +146,7 @@ CREATE TABLE IF NOT EXISTS preference_records (
 CREATE TABLE IF NOT EXISTS experiment_proposals (
     id TEXT PRIMARY KEY,
     project_id TEXT NOT NULL REFERENCES research_projects(id),
+    evidence_snapshot_id TEXT REFERENCES evidence_snapshots(id),
     hypothesis_id TEXT REFERENCES hypotheses(id),
     research_brief_version INTEGER NOT NULL,
     config_json TEXT NOT NULL,

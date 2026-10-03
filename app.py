@@ -11,6 +11,7 @@ from scientesis.rl.runner import run_experiment
 from scientesis.services.critic import critique_run
 from scientesis.ui.datasets import render_dataset_tab
 from scientesis.ui.evidence import render_evidence_tab
+from scientesis.ui.retrieval import render_retrieval_panel
 
 from scientesis.ui.decisions import render_decision_tab
 from scientesis.ui.interpretations import render_interpretation_tab_section
@@ -55,7 +56,15 @@ with proposal_tab:
     st.write("Proposals are saved first. They will not execute until you explicitly approve and then start them.")
     approved_hypotheses = repository.list_hypotheses(project_id, status="approved")
     hypothesis_by_id = {hypothesis["id"]: hypothesis for hypothesis in approved_hypotheses}
+    current_snapshots = [snapshot for snapshot in repository.list_evidence_snapshots(project_id) if snapshot["research_brief_version"] == brief["version"]]
+    snapshot_by_id = {snapshot["id"]: snapshot for snapshot in current_snapshots}
     with st.form("proposal_form"):
+        snapshot_options = [None, *snapshot_by_id]
+        evidence_snapshot_id = st.selectbox(
+            "Evidence snapshot (optional)",
+            snapshot_options,
+            format_func=lambda value: "No evidence snapshot" if value is None else f"{value} · {snapshot_by_id[value]['moss_query'] or snapshot_by_id[value].get('context_note') or 'manual evidence set'}",
+        )
         hypothesis_options = [None, *hypothesis_by_id]
         hypothesis_id = st.selectbox(
             "Approved hypothesis (optional)",
@@ -70,7 +79,7 @@ with proposal_tab:
     if submitted:
         config = ExperimentConfig.from_brief(brief, noise_train, noise_eval, safety_penalty, seed).to_dict()
         try:
-            proposal_id = repository.create_proposal(config, project_id, hypothesis_id=hypothesis_id)
+            proposal_id = repository.create_proposal(config, project_id, hypothesis_id=hypothesis_id, evidence_snapshot_id=evidence_snapshot_id)
             st.success(f"Saved {proposal_id} as proposed. No experiment has run.")
         except ValueError as error:
             st.error(str(error))
@@ -84,7 +93,8 @@ with proposal_tab:
         config = proposal["config"]
         with st.container(border=True):
             hypothesis_label = f" · hypothesis {proposal['hypothesis_id']}" if proposal.get("hypothesis_id") else " · exploratory"
-            st.markdown(f"**{proposal['id']} · {proposal['status'].replace('_', ' ').title()}{hypothesis_label}**")
+            snapshot_label = f" · snapshot {proposal['evidence_snapshot_id']}" if proposal.get("evidence_snapshot_id") else ""
+            st.markdown(f"**{proposal['id']} · {proposal['status'].replace('_', ' ').title()}{hypothesis_label}{snapshot_label}**")
             st.write(
                 f"Train noise {config['noise_train']:.2f} · eval noise {config['noise_eval']:.2f} · "
                 f"safety penalty {config['safety_penalty']:g} · seed {config['seed']} · "
@@ -169,6 +179,7 @@ with dataset_tab:
 
 with evidence_tab:
     render_evidence_tab(repository, project_id)
+    render_retrieval_panel(repository, project_id, PROJECT_ROOT)
 
 with decision_tab:
     render_decision_tab(repository, project_id)

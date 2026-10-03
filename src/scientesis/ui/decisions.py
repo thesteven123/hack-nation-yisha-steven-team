@@ -13,11 +13,20 @@ def render_decision_tab(repository, project_id: str) -> None:
     )
     with st.expander("Create a decision card", expanded=False):
         option_count = st.selectbox("Number of alternatives", [2, 3, 4], index=2, key="decision_option_count")
+        current_brief = repository.get_active_brief(project_id)
+        current_snapshots = [snapshot for snapshot in repository.list_evidence_snapshots(project_id) if snapshot["research_brief_version"] == current_brief["version"]]
+        snapshot_by_id = {snapshot["id"]: snapshot for snapshot in current_snapshots}
         with st.form("decision_create_form"):
             question = st.text_area("Concrete question")
             decision_type = st.selectbox(
                 "Decision type",
                 ["research_direction", "protocol_change", "result_interpretation", "other"],
+            )
+            snapshot_options = [None, *snapshot_by_id]
+            evidence_snapshot_id = st.selectbox(
+                "Evidence snapshot (optional)",
+                snapshot_options,
+                format_func=lambda value: "No evidence snapshot" if value is None else f"{value} · {snapshot_by_id[value]['moss_query'] or snapshot_by_id[value].get('context_note') or 'manual evidence set'}",
             )
             options = []
             for index in range(option_count):
@@ -61,6 +70,7 @@ def render_decision_tab(repository, project_id: str) -> None:
                     decision_type=decision_type,
                     options=options,
                     project_id=project_id,
+                    evidence_snapshot_id=evidence_snapshot_id,
                 )
                 st.success(f"Saved {decision_id} as pending. No answer has been inferred.")
                 st.rerun()
@@ -101,6 +111,8 @@ def _render_pending_decision(repository, decision: dict) -> None:
         st.markdown(f"**{decision['id']} · {decision['decision_type'].replace('_', ' ').title()}**")
         st.markdown(f"### {decision['question']}")
         st.caption(f"Pending · ResearchBrief v{decision['pre_brief_version']} · no response is recorded as agreement.")
+        if decision.get("evidence_snapshot_id"):
+            st.caption(f"Context snapshot: {decision['evidence_snapshot_id']}")
         for index, option in enumerate(decision["options"], start=1):
             marker = " · **Recommended**" if option["is_recommended"] else ""
             modify = " · **Modify target**" if option["is_modify_target_option"] else ""
