@@ -10,6 +10,8 @@ from scientesis.domain.models import ExperimentConfig
 from scientesis.rl.runner import run_experiment
 from scientesis.services.critic import critique_run
 from scientesis.ui.datasets import render_dataset_tab
+from scientesis.ui.evidence import render_evidence_tab
+
 from scientesis.ui.decisions import render_decision_tab
 from scientesis.ui.interpretations import render_interpretation_tab_section
 from scientesis.ui.research_targets import render_research_target_tab
@@ -26,8 +28,8 @@ ARTIFACTS_DIR = PROJECT_ROOT / "artifacts"
 st.title("Scientesis")
 st.caption("Human-guided research lab · reproducible RL experiments · simulation only")
 
-overview_tab, target_tab, proposal_tab, results_tab, dataset_tab, decision_tab, notebook_tab = st.tabs(
-    ["Research overview", "Research target", "Propose & approve", "Runs & critique", "Data intake", "Decision center", "Lab notebook"]
+overview_tab, target_tab, proposal_tab, results_tab, dataset_tab, evidence_tab, decision_tab, notebook_tab = st.tabs(
+    ["Research overview", "Research target", "Propose & approve", "Runs & critique", "Data intake", "Evidence", "Decision center", "Lab notebook"]
 )
 
 with overview_tab:
@@ -164,6 +166,9 @@ with results_tab:
 
 with dataset_tab:
     render_dataset_tab(repository, project_id)
+
+with evidence_tab:
+    render_evidence_tab(repository, project_id)
 
 with decision_tab:
     render_decision_tab(repository, project_id)

@@ -49,15 +49,20 @@ CREATE TABLE IF NOT EXISTS evidence_cards (
     id TEXT PRIMARY KEY,
     project_id TEXT NOT NULL REFERENCES research_projects(id),
     title TEXT NOT NULL,
-    source_url TEXT,
+    source_url TEXT NOT NULL,
     source_type TEXT NOT NULL,
     claim_text TEXT NOT NULL,
-    scope_text TEXT,
-    limitations_text TEXT,
-    implementation_hint TEXT,
+    scope_text TEXT NOT NULL,
+    limitations_text TEXT NOT NULL,
+    implementation_hint TEXT NOT NULL,
     retrieved_at TEXT NOT NULL,
     approved_by TEXT,
-    moss_document_id TEXT
+    moss_document_id TEXT,
+    approval_status TEXT NOT NULL DEFAULT 'pending_review',
+    quality_json TEXT NOT NULL DEFAULT '{}',
+    content_path TEXT,
+    content_sha256 TEXT,
+    approved_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS evidence_snapshots (

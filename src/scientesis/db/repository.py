@@ -49,6 +49,20 @@ class Repository:
             hypothesis_columns = {row["name"] for row in connection.execute("PRAGMA table_info(hypotheses)")}
             if "brief_version" not in hypothesis_columns:
                 connection.execute("ALTER TABLE hypotheses ADD COLUMN brief_version INTEGER NOT NULL DEFAULT 1")
+            evidence_columns = {row["name"] for row in connection.execute("PRAGMA table_info(evidence_cards)")}
+            evidence_migrations = {
+                "approval_status": "TEXT NOT NULL DEFAULT 'pending_review'",
+                "quality_json": "TEXT NOT NULL DEFAULT '{}'",
+                "content_path": "TEXT",
+                "content_sha256": "TEXT",
+                "approved_at": "TEXT",
+            }
+            for column, definition in evidence_migrations.items():
+                if column not in evidence_columns:
+                    connection.execute(f"ALTER TABLE evidence_cards ADD COLUMN {column} {definition}")
+            connection.execute(
+                "UPDATE evidence_cards SET approval_status = 'approved' WHERE approved_by IS NOT NULL AND approval_status = 'pending_review'"
+            )
             existing = connection.execute("SELECT id FROM research_projects LIMIT 1").fetchone()
             if existing:
                 return
@@ -614,6 +628,104 @@ class Repository:
         answer = dict(row)
         answer["scope"] = json.loads(answer.pop("scope_json"))
         return answer
+
+
+    def add_evidence_card(self, record: dict) -> None:
+        required = {
+            "id", "project_id", "title", "source_url", "source_type", "claim_text", "scope_text",
+            "limitations_text", "implementation_hint", "retrieved_at", "quality", "content_path", "content_sha256",
+        }
+        missing = sorted(required - set(record))
+        if missing:
+            raise ValueError(f"Evidence card is missing fields: {', '.join(missing)}")
+        if record["source_type"] not in {"official_docs", "peer_reviewed", "preprint", "technical_blog"}:
+            raise ValueError("Evidence source type is not supported.")
+        quality = record["quality"]
+        if not isinstance(quality, dict) or quality.get("evidence_level") != record["source_type"]:
+            raise ValueError("Evidence quality metadata must match the source type.")
+        if quality.get("relevance") not in {"high", "medium", "low"}:
+            raise ValueError("Evidence relevance must be high, medium, or low.")
+        if quality.get("approved_for") != "method_design_only" or quality.get("claim_status") != "external_prior_not_local_result":
+            raise ValueError("External evidence can only be labeled as method-design context, not a local result.")
+        content_path = Path(record["content_path"])
+        if content_path.is_absolute() or ".." in content_path.parts or content_path.parts[:2] != ("artifacts", "evidence"):
+            raise ValueError("Evidence content must be stored under artifacts/evidence.")
+        digest = record["content_sha256"]
+        if not isinstance(digest, str) or len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest.lower()):
+            raise ValueError("Evidence content must include a SHA-256 digest.")
+        with self.connect() as connection:
+            connection.execute(
+                "INSERT INTO evidence_cards (id, project_id, title, source_url, source_type, claim_text, scope_text, limitations_text, implementation_hint, retrieved_at, approved_by, moss_document_id, approval_status, quality_json, content_path, content_sha256, approved_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, 'pending_review', ?, ?, ?, NULL)",
+                (
+                    record["id"], record["project_id"], record["title"], record["source_url"], record["source_type"],
+                    record["claim_text"], record["scope_text"], record["limitations_text"], record["implementation_hint"],
+                    record["retrieved_at"], json_text(quality), content_path.as_posix(), digest.lower(),
+                ),
+            )
+            self._audit(
+                connection,
+                record["project_id"],
+                "evidence_card",
+                record["id"],
+                "captured_pending_human_review",
+                "system",
+                {"source_url": record["source_url"], "source_type": record["source_type"], "content_sha256": digest.lower()},
+            )
+
+    def get_evidence_card(self, evidence_id: str) -> dict:
+        with self.connect() as connection:
+            row = connection.execute("SELECT * FROM evidence_cards WHERE id = ?", (evidence_id,)).fetchone()
+        if row is None:
+            raise KeyError(f"Unknown evidence card: {evidence_id}")
+        return self._decode_evidence_card(row)
+
+    def list_evidence_cards(self, project_id: str | None = None, approval_status: str | None = None) -> list[dict]:
+        project_id = project_id or self.get_project_id()
+        query = "SELECT * FROM evidence_cards WHERE project_id = ?"
+        values = [project_id]
+        if approval_status is not None:
+            if approval_status not in {"pending_review", "approved", "rejected"}:
+                raise ValueError("Evidence status must be pending_review, approved, or rejected.")
+            query += " AND approval_status = ?"
+            values.append(approval_status)
+        query += " ORDER BY retrieved_at DESC, rowid DESC"
+        with self.connect() as connection:
+            rows = connection.execute(query, values).fetchall()
+        return [self._decode_evidence_card(row) for row in rows]
+
+    def review_evidence_card(self, evidence_id: str, decision: str) -> None:
+        if decision not in {"approved", "rejected"}:
+            raise ValueError("Review decision must be approved or rejected.")
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            card = connection.execute(
+                "SELECT project_id, approval_status FROM evidence_cards WHERE id = ?", (evidence_id,)
+            ).fetchone()
+            if card is None:
+                raise KeyError(f"Unknown evidence card: {evidence_id}")
+            if card["approval_status"] != "pending_review":
+                raise ValueError("Only evidence cards awaiting review can be approved or rejected.")
+            approved_by = "scientist" if decision == "approved" else None
+            approved_at = utc_now() if decision == "approved" else None
+            connection.execute(
+                "UPDATE evidence_cards SET approval_status = ?, approved_by = ?, approved_at = ? WHERE id = ?",
+                (decision, approved_by, approved_at, evidence_id),
+            )
+            self._audit(
+                connection,
+                card["project_id"],
+                "evidence_card",
+                evidence_id,
+                decision,
+                "human",
+                {"approved_for": "method_design_only" if decision == "approved" else None},
+            )
+
+    @staticmethod
+    def _decode_evidence_card(row) -> dict:
+        card = dict(row)
+        card["quality"] = json.loads(card.pop("quality_json"))
+        return card
 
     def add_dataset(self, record: dict) -> None:
         required = {"id", "project_id", "name", "storage_uri", "source_type", "provenance", "validation_report", "sha256", "uploaded_by"}
