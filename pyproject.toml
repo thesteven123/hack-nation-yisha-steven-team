@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "scientesis"
+version = "0.1.0"
+description = "A human-guided, reproducible RL research lab"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+  "streamlit>=1.40,<2",
+  "gymnasium[mujoco]>=1.0,<2",
+  "stable-baselines3>=2.4,<3",
+  "numpy>=1.26,<3",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<10"]
+
+[tool.setuptools.packages.find]
+where = ["src"]

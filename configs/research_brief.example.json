@@ -1,0 +1,29 @@
+{
+  "project_title": "Robust Robot Learning Under Noisy Sensing",
+  "research_question": "Does training-time observation noise improve a simulated reaching policy's performance under noisy sensing without causing unacceptable safety regressions?",
+  "objective": "Improve robustness while maintaining acceptable control behavior.",
+  "environment": "Reacher-v5",
+  "algorithm": "PPO",
+  "primary_outcome": "Noisy evaluation success rate over a fixed number of episodes.",
+  "secondary_outcomes": [
+    "Clean success rate",
+    "Mean episode return",
+    "Mean steps to goal",
+    "Actuator saturation events per episode"
+  ],
+  "experiment_budget": 12,
+  "training_steps_per_run": 100000,
+  "max_training_steps_per_run": 100000,
+  "evaluation_episodes": 100,
+  "minimum_seeds_for_claim": 3,
+  "training_seeds": [7, 19, 42],
+  "allowed_noise_values": [0.0, 0.02, 0.05],
+  "allowed_safety_penalties": [0.0, 0.25, 0.5, 1.0],
+  "success_distance_threshold": 0.05,
+  "minimum_noisy_success_improvement": 0.1,
+  "max_clean_success_decline": 0.05,
+  "actuator_saturation_threshold": 0.95,
+  "safety_regression_tolerance": 0.05,
+  "safety_metric_definition": "Count an event when either normalized actuator command reaches at least 95% of its available magnitude. This is a simulation control-limit proxy, not a physical-robot safety certification.",
+  "notes": "Initial MVP uses Gymnasium Reacher-v5. Findings apply only to this simulator and configuration; no real-world deployment claim is permitted."
+}
