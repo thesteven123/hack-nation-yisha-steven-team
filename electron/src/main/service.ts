@@ -1,3 +1,8 @@
+import { type BranchEnable, type BranchPlanInput, type BranchAnswersInput, type BranchDecisionInput, type BranchControlInput, type BranchMutation } from '../shared/research-branches'
+import type { IdeaCreateInput, IdeaFollowupInput, IdeaGenerateInput, IdeaDecisionInput, IdeaOriginalSaveResult } from '../shared/idea-lab'
+import { ideaOriginalFilename } from './idea-source-download'
+import { labId, type LabCreate, type LabDecision, type LabMutation, type LabCorrection } from '../shared/research-lab'
+import type { ResearchModelCreate } from '../shared/research-models'
 import type { ProviderUsageScope, ProviderUsageSnapshot, UsageBackend } from '../shared/provider-usage'
 import { customModelBackend, customModelInput, type CustomModelBackend, type CustomModelInput } from '../shared/custom-models'
 import { cliAccountBackend, type CLIAccountBackend, connectionRequest, type ConnectionBackend, type ConnectionAction, type ProviderConnectionRequest, type ProviderConnectionReply } from '../shared/provider-connections'
@@ -1837,6 +1842,88 @@ export class AppService {
       return health
     }
     finally { client.dispose() }
+  }
+
+  private async ideaLabRequest<T>(expected: WorkspaceProfileScope, operation: (client: AgentServerClient) => Promise<T>): Promise<T> {
+    const scope = this.requireWorkspaceScope(expected)
+    await this.ensureValidatedScope(scope)
+    this.assertCurrentScope(scope)
+    const result = await operation(scope.client)
+    this.assertCurrentScope(scope)
+    return result
+  }
+  ideaLabList(scope: WorkspaceProfileScope) { return this.ideaLabRequest(scope, client => client.ideaLabList()) }
+  ideaLabGet(scope: WorkspaceProfileScope, id: string) { return this.ideaLabRequest(scope, client => client.ideaLabGet(id)) }
+  ideaLabPaper(scope: WorkspaceProfileScope, id: string, sourceId: string, sourceHash?: string, generationId?: string) { return this.ideaLabRequest(scope, client => client.ideaLabPaper(id, sourceId, sourceHash, generationId)) }
+  async ideaLabSaveOriginal(expected: WorkspaceProfileScope, id: string, sourceId: string, sourceHash: string, generationId: string, provenanceHash: string): Promise<IdeaOriginalSaveResult | null> {
+    if (typeof sourceHash !== 'string' || !/^[a-f0-9]{64}$/.test(sourceHash)
+      || typeof generationId !== 'string' || !/^[a-f0-9]{32}$/.test(generationId)
+      || typeof provenanceHash !== 'string' || !/^[a-f0-9]{64}$/.test(provenanceHash)) throw new Error('IDEA_ORIGINAL_INVALID')
+    const scope = this.requireWorkspaceScope(expected)
+    await this.ensureValidatedScope(scope)
+    this.assertCurrentScope(scope)
+    const original = await scope.client.ideaLabOriginal(id, sourceId, sourceHash, generationId, provenanceHash)
+    this.assertCurrentScope(scope)
+    if (original.session_id !== id || original.source_id !== sourceId || original.source_hash !== sourceHash
+      || original.generation_id !== generationId || original.provenance_hash !== provenanceHash) throw new Error('IDEA_ORIGINAL_INVALID')
+    if (original.status !== 'retained') return original
+    const chosen = await dialog.showSaveDialog({ defaultPath: ideaOriginalFilename(sourceId, original.mime) })
+    if (chosen.canceled || !chosen.filePath) return null
+    this.assertCurrentScope(scope)
+    await cacheArtifactBytes(chosen.filePath, original.body)
+    return { status: 'saved', path: chosen.filePath, session_id: original.session_id, source_id: original.source_id,
+      source_hash: original.source_hash, generation_id: original.generation_id, provenance_hash: original.provenance_hash, content_hash: original.content_hash, bytes: original.bytes, fetch_id: original.fetch_id }
+  }
+  ideaLabActivities(scope: WorkspaceProfileScope, id: string, before?: number) { return this.ideaLabRequest(scope, client => client.ideaLabActivities(id, before)) }
+  ideaLabHistory(scope: WorkspaceProfileScope, id: string) { return this.ideaLabRequest(scope, client => client.ideaLabHistory(id)) }
+  ideaLabCreate(scope: WorkspaceProfileScope, input: IdeaCreateInput) { return this.ideaLabRequest(scope, client => client.ideaLabCreate(input)) }
+  ideaLabGenerate(scope: WorkspaceProfileScope, id: string, input: IdeaGenerateInput) { return this.ideaLabRequest(scope, client => client.ideaLabGenerate(id, input)) }
+  ideaLabCancel(scope: WorkspaceProfileScope, id: string, input: { expected_revision: number }) { return this.ideaLabRequest(scope, client => client.ideaLabCancel(id, input)) }
+  ideaLabFollowup(scope: WorkspaceProfileScope, id: string, input: IdeaFollowupInput) { return this.ideaLabRequest(scope, client => client.ideaLabFollowup(id, input)) }
+  ideaLabDecision(scope: WorkspaceProfileScope, id: string, input: IdeaDecisionInput) { return this.ideaLabRequest(scope, client => client.ideaLabDecision(id, input)) }
+
+  researchBranchesGet(scope: WorkspaceProfileScope, campaign: string) { return this.ideaLabRequest(scope, client => client.researchBranchesGet(campaign)) }
+  researchBranchesEnable(scope: WorkspaceProfileScope, campaign: string, input: BranchEnable) { return this.ideaLabRequest(scope, client => client.researchBranchesEnable(campaign, input)) }
+  researchBranchesPlan(scope: WorkspaceProfileScope, campaign: string, branch: string, input: BranchPlanInput) { return this.ideaLabRequest(scope, client => client.researchBranchesPlan(campaign, branch, input)) }
+  researchBranchesAnswers(scope: WorkspaceProfileScope, campaign: string, branch: string, input: BranchAnswersInput) { return this.ideaLabRequest(scope, client => client.researchBranchesAnswers(campaign, branch, input)) }
+  researchBranchesDecision(scope: WorkspaceProfileScope, campaign: string, branch: string, input: BranchDecisionInput) { return this.ideaLabRequest(scope, client => client.researchBranchesDecision(campaign, branch, input)) }
+  researchBranchesControl(scope: WorkspaceProfileScope, campaign: string, branch: string, input: BranchControlInput) { return this.ideaLabRequest(scope, client => client.researchBranchesControl(campaign, branch, input)) }
+  researchBranchesRun(scope: WorkspaceProfileScope, campaign: string, branch: string, input: BranchMutation) { return this.ideaLabRequest(scope, client => client.researchBranchesRun(campaign, branch, input)) }
+  researchLabCapabilities(scope: WorkspaceProfileScope) { return this.ideaLabRequest(scope, client => client.researchLabCapabilities()) }
+  researchLabList(scope: WorkspaceProfileScope, before?: string) { return this.ideaLabRequest(scope, client => client.researchLabList(before)) }
+  researchLabGet(scope: WorkspaceProfileScope, id: string) { return this.ideaLabRequest(scope, client => client.researchLabGet(id)) }
+  researchLabIdeaSeed(scope: WorkspaceProfileScope, id: string) { return this.ideaLabRequest(scope, client => client.researchLabIdeaSeed(id)) }
+  researchLabCreate(scope: WorkspaceProfileScope, input: LabCreate) { return this.ideaLabRequest(scope, client => client.researchLabCreate(input)) }
+  researchLabDecision(scope: WorkspaceProfileScope, id: string, input: LabDecision) { return this.ideaLabRequest(scope, client => client.researchLabDecision(id, input)) }
+  researchLabRun(scope: WorkspaceProfileScope, id: string, input: LabMutation) { return this.ideaLabRequest(scope, client => client.researchLabRun(id, input)) }
+  researchLabAdvance(scope: WorkspaceProfileScope, id: string, input: LabMutation) { return this.ideaLabRequest(scope, client => client.researchLabAdvance(id, input)) }
+  researchLabCorrectInputs(scope: WorkspaceProfileScope, id: string, input: LabCorrection) { return this.ideaLabRequest(scope, client => client.researchLabCorrectInputs(id, input)) }
+  researchLabReconcileDependencies(scope: WorkspaceProfileScope, id: string) { return this.ideaLabRequest(scope, client => client.researchLabReconcileDependencies(id)) }
+  researchLabHistory(scope: WorkspaceProfileScope, id: string, before?: string) { return this.ideaLabRequest(scope, client => client.researchLabHistory(id, before)) }
+  researchLabArtifact(scope: WorkspaceProfileScope, id: string, hash: string) { return this.ideaLabRequest(scope, client => client.researchLabArtifact(id, hash)) }
+  researchLabProtocol(scope: WorkspaceProfileScope, id: string) { return this.ideaLabRequest(scope, client => client.researchLabProtocol(id)) }
+  researchModelList(scope: WorkspaceProfileScope, campaign: string, before?: number, branch?: string) { return this.ideaLabRequest(scope, client => client.researchModelList(campaign, before, branch)) }
+  researchModelCreate(scope: WorkspaceProfileScope, campaign: string, input: ResearchModelCreate) { return this.ideaLabRequest(scope, client => client.researchModelCreate(campaign, input)) }
+  researchModelGet(scope: WorkspaceProfileScope, campaign: string, job: string) { return this.ideaLabRequest(scope, client => client.researchModelGet(campaign, job)) }
+  researchModelStart(scope: WorkspaceProfileScope, campaign: string, job: string) { return this.ideaLabRequest(scope, client => client.researchModelStart(campaign, job)) }
+  researchModelWait(scope: WorkspaceProfileScope, campaign: string, job: string) { return this.ideaLabRequest(scope, client => client.researchModelWait(campaign, job)) }
+  researchModelCancel(scope: WorkspaceProfileScope, campaign: string, job: string) { return this.ideaLabRequest(scope, client => client.researchModelCancel(campaign, job)) }
+  researchModelArtifact(scope: WorkspaceProfileScope, campaign: string, job: string, hash: string) { return this.ideaLabRequest(scope, client => client.researchModelArtifact(campaign, job, hash)) }
+  async researchLabExport(expected: WorkspaceProfileScope, id: string) {
+    const scope = this.requireWorkspaceScope(expected)
+    const campaignId = labId(id)
+    await this.ensureValidatedScope(scope)
+    this.assertCurrentScope(scope)
+    const bundle = await scope.client.researchLabExport(campaignId)
+    this.assertCurrentScope(scope)
+    if (bundle.campaign_id !== campaignId) throw new Error('The exported research identity does not match the selected research.')
+    const bytes = Buffer.from(bundle.json, 'utf8')
+    if (bytes.length > 16 * 1024 * 1024) throw new Error('Research export exceeds the complete-bundle limit.')
+    const result = await dialog.showSaveDialog({ defaultPath: `research-${campaignId}.json`, filters: [{ name: 'Research campaign JSON', extensions: ['json'] }] })
+    if (result.canceled || !result.filePath) return null
+    this.assertCurrentScope(scope)
+    await cacheArtifactBytes(result.filePath, bytes)
+    return { path: result.filePath, campaign_id: campaignId, bundle_sha256: bundle.bundle_sha256, bytes: bytes.length }
   }
 
   async previewChatShare(expected: WorkspaceProfileScope, sessionId: string) {

@@ -1,5 +1,168 @@
 # Public development log
 
+## 2026-10-03 — Save retained original sources without changing historical evidence
+
+- An explicit save action in frozen-source details requests the exact Idea
+  session, source ID and source-packet version. The native main process verifies
+  returned identity, canonical base64, byte count and original-file SHA-256 before
+  showing a Save As dialog. Binary content does not enter renderer state; saving
+  never opens or executes the downloaded file, or fetches a replacement URL.
+- Unretained legacy originals, unavailable files and integrity failures have
+  distinct states. The original may contain material outside the text actually
+  read. A failed parse with no published source packet is outside this download
+  route even when its original bytes were retained for backup.
+- Validation: 50 focused client checks, eight Idea selected-server/save-dialog
+  ownership checks and TypeScript checks passed. Tests include exact byte
+  preservation, response limits, adjacent route rejection, cancellation and
+  server changes during a save. Production build and native desktop acceptance
+  for this increment remain separate, pending checks; the installed app is not
+  changed by this source development work.
+
+## 2026-10-03 — Add bounded research campaigns and explicit model interpretation
+
+- Research Lab accepts an existing question or hypothesis, or imports a saved
+  Idea selection with its verified frozen source versions. Local source-evidence
+  and paired-numeric adapters expose candidate actions, recorded human choices,
+  frozen execution, observations, quality checks and result-driven next plans.
+  Revisions and input corrections retain earlier results and invalidate dependent
+  conclusions. These adapters do not execute arbitrary research or establish
+  independent replication.
+- Planner, Analyst and Reviewer model tasks require explicit requests and use
+  separate contexts. Saved jobs support explicit progress viewing, prepared-task
+  start, cancellation and paginated history. Recommendations can fill human
+  feedback, but cannot select or execute an action or overwrite machine records.
+  Model quotas and unknown usage remain separate from local action/round limits.
+- Shared correction of a verified imported source requires an explicit choice.
+  Dependency synchronization starts no research work; affected inputs block new
+  execution and model requests. Mutation acknowledgements are followed by a fresh
+  state read, with execution blocked when current dependency status is unavailable.
+- Current views omit repeated task packets and can load earlier rounds, full
+  decision events and actual dispatch context by scoped content references.
+  Protocol summaries, technical records and detailed interpretations expand on
+  demand. Core JSON export preserves local research records; model jobs and
+  shared-correction records are outside that export. Comparisons distinguish
+  different propositions, and display rounding never changes stored values.
+- Validation: 103 focused client tests, eight selected-server ownership checks
+  and TypeScript checks passed. Native desktop/provider acceptance for this
+  increment is still in progress and is not claimed by these checks. Availability
+  remains the independent source development copy; no installed-app replacement
+  or public deployment is included.
+
+## 2026-10-03 — Show literature and extracted information before technical records
+
+- Idea members now show compact identities and statuses. Source cards lead with
+  the actual reading scope and up to two existing evidence findings; additional
+  findings, gaps, original text and evidence details expand on demand. Technical
+  budgets, native tasks, search receipts and paginated activity logs are closed
+  by default. Citation links open their enclosing evidence panels.
+- Findings are matched by source ID; only recorded source versions group text
+  packets. Search snippets are not presented as read evidence, and exact frozen
+  evidence uses the model packet's coverage before the underlying paper's scope.
+- Validation: 26 focused component tests, TypeScript checks and production build
+  passed. The isolated source desktop exercised failed and completed saved groups,
+  evidence expansion, a frozen-source read and explicit activity pagination over
+  native IPC/authenticated server transport. Light and dark presentation checked.
+  A separate 390px light rendering fixture was visually checked for wrapping;
+  this narrow fixture is not native end-to-end acceptance.
+  Research records and service processes remained unchanged; no provider run was
+  started for this display change. Running-state behavior is component-tested.
+- Availability: independent source app only; no server update or installation.
+  An existing evidence-validation failure remains a separate generation issue.
+
+## 2026-10-03 — Connect Idea Lab to literature research and continued human decisions
+
+- Goal-only briefs now start real literature discovery, source retrieval and
+  reading. Visible Literature and Idea members publish native job, query, URL
+  and evidence-handoff receipts. A separate review context can request changed
+  searches or revised proposals within bounded rounds. Source access, omitted
+  coverage, cache reuse and unresolved evidence remain inspectable; finishing
+  a run does not establish readiness or a scientific conclusion.
+- Comparable directions lead to versioned choices, combinations, rejection or
+  deferral. Required questions and exact feedback guide explicit continuation,
+  refinement or research of a selected direction. Saved briefs, decisions and
+  evidence survive restart. Earlier groups remain readable as unsearched.
+  Historical EvidenceCards expose quotations, conditions, assumptions,
+  interpretations and source locations; explicit source reads verify the frozen
+  text's identity and SHA-256. Source support and inference validity stay separate.
+- Native desktop validation exercised a goal-only start through real search,
+  reading, literature synthesis, proposals and review-directed second retrieval.
+  Stop waited for owned provider work to close, and feedback survived application
+  and development-server restart. A real follow-up completed three bounded rounds,
+  read original PDF sources, recovered an inaccessible work through a public
+  preprint, reused cached sources and produced eight exact-source evidence cards
+  and three compared directions. It honestly stopped as evidence-limited;
+  explicit continuation remains available. Frozen historical source loading,
+  paginated work history and a saved human deferral were exercised in the native
+  UI. Restart preserved the complete result without starting another job.
+- Review follow-up receipts no longer leave the finished member marked as
+  working while the other member reads. A blocked-reader regression verifies
+  the state transition and retained activity receipts.
+- Validation: 145 combined server tests, 47 targeted client tests, four client
+  ownership checks, TypeScript checks and the production build pass. The work
+  remains in an independent source development environment; installed
+  applications, profiles and services are unchanged. No experiment execution,
+  publication or deployment is part of this workflow.
+
+## 2026-10-03 — Add an isolated, testable Idea Lab desktop workflow
+
+- A sidebar entry turns a goal and optional pasted sources into two or three
+  comparable directions. Three fresh native Codex roles read supplied evidence,
+  propose directions and critique each one. Exact quotes/reference IDs are
+  checked, missing evidence remains visible, and output is bounded and typed.
+  No literature search, experiment execution or automatic retry is implied.
+- Select changes the goal; revise preserves exact feedback and prior versions;
+  defer records a decision. Independent SQLite state survives restart. Native
+  IPC retains selected-server ownership, explicit reopening supports Stop, and
+  cancelling waits for the owned provider process to unwind. Reads never start
+  a provider; incomplete token/cost information is not presented as zero.
+- A development-only bootstrap uses a marked client directory and loopback
+  server, skips URL-protocol takeover and updater startup, and validates paths
+  before settings/log writes. The server helper scopes HOME, configuration,
+  state, CLI home, temp and tmux, and stops only its marked process. Existing
+  installed services and profiles are not used as fixtures.
+- Source base `cd7bded69fbf65cdcb2e33f2e7c395eef3222115`; tested source app 0.2.0,
+  server 1.0.7-beta.11, native Codex app-server 0.160.0. Actual isolated native
+  desktop input exercised the real IPC/HTTP/native-authorization/provider/store
+  chain: synthetic source → four exact quotes → three directions and critique
+  → saved choice. Restarted client and development server retained the choice.
+  A second request was stopped and left no owned provider child; Chinese
+  revision/defer saved without redispatch. English/Chinese and light/dark views,
+  input, scrolling and history were observed. No provider/server mocks were
+  used in that journey. Narrow-window native acceptance remains unverified.
+- Validation: 83 focused backend/provider/prior-reference/auth regressions,
+  six launcher-isolation tests, 44 focused client tests, TypeScript check and
+  production build pass. Three new runtime-manifest checks and lockfile check
+  pass. Pre-existing checkout line-ending and cross-platform packaging fixture
+  limitations remain; a distributable release was not built.
+- Availability: independent local source build for user testing. No installed
+  application replacement, production-service restart, publication or
+  deployment. See `server/docs/IDEA_LAB.md` for scope and contracts.
+
+## 2026-10-03 — Add a bounded research reference action in server source
+
+- Native authenticated research endpoints freeze an exact-source-span action,
+  retain its goal, observations, QC and zero-external-work costs, and expose
+  hash-checked artifacts and individual protocol summaries. Source occurrence
+  and inference validity remain separate. Existing sessions/providers are unchanged.
+- A separate versioned SQLite store atomically publishes deterministic results
+  and events. Idempotency rejects changed input, restart returns saved results,
+  and source/parser/coverage changes invalidate parsing reuse. A linear-time
+  matcher bounds repeated-character inputs while retaining full match counts.
+- Validation on Python 3.13: 33 focused store, route and existing native-control
+  tests pass, including concurrency, actual process termination before commit,
+  failed writes, Unicode locations, maximum-size repetitive inputs and corruption.
+  Eight real loopback HTTP check groups pass against the actual server app and
+  native guard, including process restart, hash-verified artifact download and
+  SQLite backup restoration. The isolated smoke disables ASGI lifespan and
+  performs no provider calls. Sixteen targeted runtime-manifest/staging checks
+  pass. Full release packaging
+  is unverified: the development environment has checkout line-ending/hash and
+  cross-platform npm fixture limitations.
+- Availability: source only. No installation, publication, deployment or
+  existing-service restart. Native desktop/provider acceptance and startup-worker
+  validation are separate from the isolated research HTTP smoke; see
+  `server/docs/RESEARCH_REFERENCE_ACTION.md` for scope and reproduction.
+
 ## 2026-10-02 — Align update test fixtures with current idle-update policy
 
 - Final CLI merge validation exposed two pre-existing main-branch CI failures

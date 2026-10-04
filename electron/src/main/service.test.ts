@@ -10210,3 +10210,185 @@ describe('rapid profile resource teardown', () => {
     }
   })
 })
+
+
+describe('Idea Lab server ownership', () => {
+  const expected = { profileId: 'lab', profileGeneration: 2, serverIdentity: 'server-lab' }
+  const generationId = 'd'.repeat(32), provenanceHash = 'e'.repeat(64)
+  const identity = { session_id: 'idea', source_id: 'paper', source_hash: 'a'.repeat(64), generation_id: generationId, provenance_hash: provenanceHash }
+  function fixture() {
+    const client = { ideaLabPaper: vi.fn().mockResolvedValue({ source: { id: 'paper' } }), ideaLabGenerate: vi.fn().mockResolvedValue({ id: 'idea' }), ideaLabGet: vi.fn().mockResolvedValue({ id: 'idea' }) }
+    const scope = { client, profileId: 'lab', generation: 2 }
+    const service = Object.create(AppService.prototype) as AppService
+    const ensure = vi.fn().mockResolvedValue(undefined)
+    Object.assign(service, { scope, activeProfileId: 'lab', profileGeneration: 2,
+      settings: { getProfile: () => ({ serverIdentity: 'server-lab' }) }, ensureValidatedScope: ensure })
+    return { service, client, scope, ensure }
+  }
+  it('rejects stale server identity before any provider generation', async () => {
+    const f = fixture()
+    await expect(f.service.ideaLabGenerate({ ...expected, serverIdentity: 'different-server' }, 'idea', { idempotency_key: 'key', expected_revision: 1 })).rejects.toThrow()
+    expect(f.client.ideaLabGenerate).not.toHaveBeenCalled()
+  })
+  it('does not generate after server selection changes during validation', async () => {
+    const f = fixture()
+    f.ensure.mockImplementation(async () => { Object.assign(f.service, { scope: { ...f.scope, generation: 3 }, profileGeneration: 3 }) })
+    await expect(f.service.ideaLabGenerate(expected, 'idea', { idempotency_key: 'key', expected_revision: 1 })).rejects.toThrow()
+    expect(f.client.ideaLabGenerate).not.toHaveBeenCalled()
+  })
+  it('does not return an old response after server selection changes', async () => {
+    const f = fixture()
+    f.client.ideaLabGet.mockImplementation(async () => { Object.assign(f.service, { scope: { ...f.scope, generation: 3 }, profileGeneration: 3 }); return { id: 'old' } })
+    await expect(f.service.ideaLabGet(expected, 'idea')).rejects.toThrow()
+    expect(f.client.ideaLabGet).toHaveBeenCalledOnce()
+  })
+  it('fences historical paper reads before dispatch and after a late server response', async () => {
+    const f = fixture()
+    await expect(f.service.ideaLabPaper({ ...expected, serverIdentity: 'other' }, 'idea', 'paper')).rejects.toThrow()
+    expect(f.client.ideaLabPaper).not.toHaveBeenCalled()
+    f.client.ideaLabPaper.mockImplementation(async () => { Object.assign(f.service, { scope: { ...f.scope, generation: 3 }, profileGeneration: 3 }); return { source: { id: 'paper' } } })
+    await expect(f.service.ideaLabPaper(expected, 'idea', 'paper')).rejects.toThrow()
+    expect(f.client.ideaLabPaper).toHaveBeenCalledOnce()
+  })
+  it('saves exact verified original bytes with a native dialog and returns no file body to the renderer', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'agentsdock-original-save-'))
+    cleanup.push(() => rmSync(directory, { recursive: true, force: true }))
+    const destination = join(directory, 'original.html'), f = fixture(), body = Buffer.from('<script>neverExecute()</script>\r\n原文')
+    const original = { status: 'retained', ...identity, content_hash: createHash('sha256').update(body).digest('hex'), bytes: body.length, mime: 'text/html', fetch_id: 'b'.repeat(32), body }
+    const read = vi.fn().mockResolvedValue(original)
+    Object.assign(f.client, { ideaLabOriginal: read })
+    electronHarness.showSaveDialog.mockResolvedValue({ canceled: false, filePath: destination })
+    const result = await f.service.ideaLabSaveOriginal(expected, 'idea', 'paper', original.source_hash, generationId, provenanceHash)
+    expect(readFileSync(destination)).toEqual(body)
+    expect(result).toEqual({ status: 'saved', path: destination, session_id: 'idea', source_id: 'paper', source_hash: original.source_hash, generation_id: generationId, provenance_hash: provenanceHash, content_hash: original.content_hash, bytes: body.length, fetch_id: original.fetch_id })
+    expect(read).toHaveBeenCalledWith('idea', 'paper', original.source_hash, generationId, provenanceHash)
+    expect(electronHarness.showSaveDialog).toHaveBeenCalledWith({ defaultPath: 'source-paper.html' })
+    expect(electronHarness.shellOpenPath).not.toHaveBeenCalled()
+    expect(electronHarness.shellOpenExternal).not.toHaveBeenCalled()
+  })
+  it('does not show a dialog for an unretained historical original and treats cancellation as no save', async () => {
+    const f = fixture(), read = vi.fn().mockResolvedValue({ status: 'not_retained', ...identity })
+    Object.assign(f.client, { ideaLabOriginal: read })
+    expect(await f.service.ideaLabSaveOriginal(expected, 'idea', 'paper', 'a'.repeat(64), generationId, provenanceHash)).toEqual({ status: 'not_retained', ...identity })
+    expect(electronHarness.showSaveDialog).not.toHaveBeenCalled()
+    read.mockResolvedValue({ status: 'retained', ...identity, mime: 'application/pdf' })
+    electronHarness.showSaveDialog.mockResolvedValue({ canceled: true })
+    expect(await f.service.ideaLabSaveOriginal(expected, 'idea', 'paper', 'a'.repeat(64), generationId, provenanceHash)).toBeNull()
+  })
+  it('rejects stale original-download ownership before dispatch and after a late server response', async () => {
+    const f = fixture(), read = vi.fn().mockImplementation(async () => {
+      Object.assign(f.service, { scope: { ...f.scope, generation: 3 }, profileGeneration: 3 })
+      return { status: 'retained', ...identity, mime: 'application/pdf' }
+    })
+    Object.assign(f.client, { ideaLabOriginal: read })
+    await expect(f.service.ideaLabSaveOriginal({ ...expected, serverIdentity: 'other' }, 'idea', 'paper', 'a'.repeat(64), generationId, provenanceHash)).rejects.toThrow()
+    expect(read).not.toHaveBeenCalled()
+    await expect(f.service.ideaLabSaveOriginal(expected, 'idea', 'paper', 'a'.repeat(64), generationId, provenanceHash)).rejects.toThrow()
+    expect(electronHarness.showSaveDialog).not.toHaveBeenCalled()
+  })
+  it('does not write original bytes when server selection changes inside the save dialog', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'agentsdock-original-fence-'))
+    cleanup.push(() => rmSync(directory, { recursive: true, force: true }))
+    const destination = join(directory, 'original.pdf'), f = fixture()
+    Object.assign(f.client, { ideaLabOriginal: vi.fn().mockResolvedValue({ status: 'retained', ...identity, mime: 'application/pdf', body: Buffer.from('original') }) })
+    electronHarness.showSaveDialog.mockImplementation(async () => {
+      Object.assign(f.service, { scope: { ...f.scope, generation: 3 }, profileGeneration: 3 })
+      return { canceled: false, filePath: destination }
+    })
+    await expect(f.service.ideaLabSaveOriginal(expected, 'idea', 'paper', 'a'.repeat(64), generationId, provenanceHash)).rejects.toThrow()
+    expect(existsSync(destination)).toBe(false)
+  })
+
+  it('rejects an original with another fetch descriptor before the native save dialog', async () => {
+    const f = fixture()
+    Object.assign(f.client, { ideaLabOriginal: vi.fn().mockResolvedValue({ status: 'retained', ...identity, provenance_hash: 'f'.repeat(64), mime: 'application/pdf', body: Buffer.from('wrong fetch') }) })
+    await expect(f.service.ideaLabSaveOriginal(expected, 'idea', 'paper', identity.source_hash, generationId, provenanceHash)).rejects.toThrow('IDEA_ORIGINAL_INVALID')
+    expect(electronHarness.showSaveDialog).not.toHaveBeenCalled()
+  })
+
+  it('rejects a legacy save request with no descriptor before dispatch', async () => {
+    const f = fixture(), read = vi.fn()
+    Object.assign(f.client, { ideaLabOriginal: read })
+    await expect(f.service.ideaLabSaveOriginal(expected, 'idea', 'paper', identity.source_hash, undefined as unknown as string, undefined as unknown as string)).rejects.toThrow('IDEA_ORIGINAL_INVALID')
+    expect(read).not.toHaveBeenCalled()
+    expect(electronHarness.showSaveDialog).not.toHaveBeenCalled()
+  })
+
+})
+
+describe('Research Lab server ownership', () => {
+  const expected = { profileId: 'research', profileGeneration: 4, serverIdentity: 'research-server' }
+  function fixture() {
+    const client = { researchLabRun: vi.fn().mockResolvedValue({ id: 'research' }), researchLabIdeaSeed: vi.fn().mockResolvedValue({ id: 'seed' }), researchLabArtifact: vi.fn().mockResolvedValue({ content: {} }), researchLabList: vi.fn().mockResolvedValue({ items: [] }) }
+    const scope = { client, profileId: 'research', generation: 4 }, service = Object.create(AppService.prototype) as AppService, ensure = vi.fn().mockResolvedValue(undefined)
+    Object.assign(service, { scope, activeProfileId: 'research', profileGeneration: 4, settings: { getProfile: () => ({ serverIdentity: 'research-server' }) }, ensureValidatedScope: ensure })
+    return { client, scope, service, ensure }
+  }
+  it('fences branch mutation and read responses across selected-server changes', async () => {
+    const f = fixture(), run = vi.fn(), get = vi.fn().mockImplementation(async () => { Object.assign(f.service, { scope: { ...f.scope, generation: 5 }, profileGeneration: 5 }); return {} })
+    Object.assign(f.client, { researchBranchesRun: run, researchBranchesGet: get })
+    await expect(f.service.researchBranchesRun({ ...expected, serverIdentity: 'other' }, 'campaign', 'b', { expected_branch_revision: 1, expected_authority_epoch: 1, idempotency_key: 'one' })).rejects.toThrow()
+    expect(run).not.toHaveBeenCalled()
+    await expect(f.service.researchBranchesGet(expected, 'campaign')).rejects.toThrow()
+    expect(get).toHaveBeenCalledWith('campaign')
+  })
+  it('keeps a branch model filter inside the validated server scope', async () => {
+    const f = fixture(), list = vi.fn().mockResolvedValue({ items: [], quota: {} })
+    Object.assign(f.client, { researchModelList: list })
+    await f.service.researchModelList(expected, 'campaign', 19, 'b')
+    expect(list).toHaveBeenCalledWith('campaign', 19, 'b')
+  })
+  it('rejects an action addressed to a different selected server before dispatch', async () => {
+    const f = fixture()
+    await expect(f.service.researchLabRun({ ...expected, serverIdentity: 'other' }, 'research', { expected_revision: 1, idempotency_key: 'key' })).rejects.toThrow()
+    expect(f.client.researchLabRun).not.toHaveBeenCalled()
+  })
+  it('fences server changes during scope validation before importing an Idea origin', async () => {
+    const f = fixture(); f.ensure.mockImplementation(async () => { Object.assign(f.service, { scope: { ...f.scope, generation: 5 }, profileGeneration: 5 }) })
+    await expect(f.service.researchLabIdeaSeed(expected, 'idea')).rejects.toThrow(); expect(f.client.researchLabIdeaSeed).not.toHaveBeenCalled()
+  })
+  it('rejects an artifact response after the profile generation changes', async () => {
+    const f = fixture(); f.client.researchLabArtifact.mockImplementation(async () => { Object.assign(f.service, { scope: { ...f.scope, generation: 5 }, profileGeneration: 5 }); return { content: {} } })
+    await expect(f.service.researchLabArtifact(expected, 'research', 'a'.repeat(64))).rejects.toThrow()
+    expect(f.client.researchLabArtifact).toHaveBeenCalledOnce()
+  })
+  it('preserves explicit list cursors within the validated owner scope', async () => {
+    const f = fixture(); await f.service.researchLabList(expected, 'opaque_cursor')
+    expect(f.client.researchLabList).toHaveBeenCalledWith('opaque_cursor')
+  })
+  it('saves only the selected campaign bytes through a native dialog without JSON rewriting', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'agentsdock-research-export-'))
+    cleanup.push(() => rmSync(directory, { recursive: true, force: true }))
+    const destination = join(directory, 'campaign.json'), f = fixture()
+    const json = '{"preserveNumber":1.0,"text":"研究"}'
+    const exported = vi.fn().mockResolvedValue({ json, campaign_id: 'campaign', bundle_sha256: 'a'.repeat(64) })
+    Object.assign(f.client, { researchLabExport: exported })
+    electronHarness.showSaveDialog.mockResolvedValue({ canceled: false, filePath: destination })
+    const saved = await f.service.researchLabExport(expected, 'campaign')
+    expect(saved?.path).toBe(destination); expect(readFileSync(destination, 'utf8')).toBe(json)
+    expect(exported).toHaveBeenCalledWith('campaign')
+    expect(electronHarness.showSaveDialog).toHaveBeenCalledWith(expect.objectContaining({ defaultPath: 'research-campaign.json' }))
+  })
+  it('does not save after a server change while the save dialog is open or after cancellation', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'agentsdock-research-export-fence-'))
+    cleanup.push(() => rmSync(directory, { recursive: true, force: true }))
+    const destination = join(directory, 'campaign.json'), f = fixture()
+    Object.assign(f.client, { researchLabExport: vi.fn().mockResolvedValue({ json: '{}', campaign_id: 'campaign', bundle_sha256: 'a'.repeat(64) }) })
+    electronHarness.showSaveDialog.mockResolvedValueOnce({ canceled: true })
+    expect(await f.service.researchLabExport(expected, 'campaign')).toBeNull()
+    electronHarness.showSaveDialog.mockImplementationOnce(async () => { Object.assign(f.service, { scope: { ...f.scope, generation: 5 }, profileGeneration: 5 }); return { canceled: false, filePath: destination } })
+    await expect(f.service.researchLabExport(expected, 'campaign')).rejects.toThrow()
+    expect(existsSync(destination)).toBe(false)
+  })
+  it('rejects model submission if the displayed server identity no longer owns the view', async () => {
+    const f = fixture(), create = vi.fn(); Object.assign(f.client, { researchModelCreate: create })
+    await expect(f.service.researchModelCreate({ ...expected, serverIdentity: 'other' }, 'campaign', { role: 'planner', expected_revision: 1, idempotency_key: 'key' })).rejects.toThrow()
+    expect(create).not.toHaveBeenCalled()
+  })
+  it('rejects a long-wait response after server selection changes', async () => {
+    const f = fixture(), wait = vi.fn().mockImplementation(async () => { Object.assign(f.service, { scope: { ...f.scope, generation: 5 }, profileGeneration: 5 }); return { id: 'job' } })
+    Object.assign(f.client, { researchModelWait: wait })
+    await expect(f.service.researchModelWait(expected, 'campaign', 'job')).rejects.toThrow()
+    expect(wait).toHaveBeenCalledWith('campaign', 'job')
+  })
+})

@@ -1,10 +1,15 @@
+import { labBranchId, type BranchEnable, type BranchPlanInput, type BranchAnswersInput, type BranchDecisionInput, type BranchControlInput, type BranchMutation } from '../shared/research-branches'
+import { ideaSessionId, ideaSourceSegment, parseIdeaPaper, parseIdeaSession, parseIdeaPage, parseIdeaActivities, type IdeaCreateInput, type IdeaFollowupInput, type IdeaGenerateInput, type IdeaDecisionInput } from '../shared/idea-lab'
+import { parseIdeaOriginal } from './idea-source-download'
+import { labId, labHash, labCursorQuery, labProtocolId, parseLabCampaign, parseLabPage, parseLabCapabilities, parseLabHistory, parseLabSeed, parseLabArtifact, parseLabProtocol, parseLabExport, type LabCreate, type LabDecision, type LabMutation, type LabCorrection } from '../shared/research-lab'
+import { parseResearchJob, parseResearchModelPage, parseResearchModelArtifact, type ResearchModelCreate } from '../shared/research-models'
 import { createReadStream, openAsBlob } from 'node:fs'
 import { parseProviderUsage, type ProviderUsageSnapshot, type UsageBackend } from '../shared/provider-usage'
 import { parseCodexAuthStatus } from '../shared/codex-auth'
 import { customModelBackend, customModelInput, parseCustomModels, type CustomModelBackend, type CustomModelInput } from '../shared/custom-models'
 import { cliAccountBackend, parseCLIAccount, type CLIAccountBackend, connectionBackend, connectionRequest, parseConnectionReply, type ConnectionBackend, type ConnectionAction, type ProviderConnectionRequest, type ProviderConnectionReply } from '../shared/provider-connections'
 import { parseCodexProviderConfiguration, parseCodexProviderModels, parseCodexProviderTestResult, validateCodexProviderInput, validateCodexProviderModelTestInput, validateCodexProviderSelection } from '../shared/codex-provider'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { request as httpRequest, type IncomingMessage } from 'node:http'
 import { request as httpsRequest } from 'node:https'
 import { basename } from 'node:path'
@@ -1242,6 +1247,91 @@ export class AgentServerClient {
 
   providerCommands(sessionId: string, refresh = false): Promise<ProviderCommandsSnapshot> {
     return this.get(`/api/sessions/${encodeURIComponent(sessionId)}/provider-commands?refresh=${refresh ? 'true' : 'false'}`)
+  }
+
+  private labRequest(path: string, input?: unknown) {
+    return this.privilegedNativeRequest(`/api/research/lab${path}`, input === undefined ? {} : { method: 'POST', body: JSON.stringify(input) }, DEFAULT_REQUEST_TIMEOUT_MS, 200, 4 * 1024 * 1024)
+  }
+  async researchBranchesGet(campaign: string) { return this.branchResponse(await this.labRequest(`/${labId(campaign)}/branches`), campaign) }
+  async researchBranchesEnable(campaign: string, input: BranchEnable) { return this.branchResponse(await this.labRequest(`/${labId(campaign)}/branches`, input), campaign) }
+  async researchBranchesPlan(campaign: string, branch: string, input: BranchPlanInput) { return this.branchResponse(await this.labRequest(`/${labId(campaign)}/branches/${labBranchId(branch)}/plan`, input), campaign) }
+  async researchBranchesAnswers(campaign: string, branch: string, input: BranchAnswersInput) { return this.branchResponse(await this.labRequest(`/${labId(campaign)}/branches/${labBranchId(branch)}/answers`, input), campaign) }
+  async researchBranchesDecision(campaign: string, branch: string, input: BranchDecisionInput) { return this.branchResponse(await this.labRequest(`/${labId(campaign)}/branches/${labBranchId(branch)}/decision`, input), campaign) }
+  async researchBranchesControl(campaign: string, branch: string, input: BranchControlInput) { return this.branchResponse(await this.labRequest(`/${labId(campaign)}/branches/${labBranchId(branch)}/control`, input), campaign) }
+  async researchBranchesRun(campaign: string, branch: string, input: BranchMutation) { return this.branchResponse(await this.labRequest(`/${labId(campaign)}/branches/${labBranchId(branch)}/run`, input), campaign) }
+  private branchResponse(value: unknown, campaign: string) { const result = parseLabCampaign(value); if (result.id !== campaign || !result.branch_set) throw new Error('Invalid research branch response.'); return result }
+  async researchLabCapabilities() { return parseLabCapabilities(await this.labRequest('/capabilities')) }
+  async researchLabList(before?: string) { return parseLabPage(await this.labRequest(labCursorQuery(before))) }
+  async researchLabGet(id: string) { return parseLabCampaign(await this.labRequest(`/${labId(id)}`)) }
+  async researchLabIdeaSeed(id: string) { return parseLabSeed(await this.labRequest(`/idea-seed/${labId(id)}`)) }
+  async researchLabCreate(input: LabCreate) { return parseLabCampaign(await this.labRequest('', input)) }
+  async researchLabDecision(id: string, input: LabDecision) { return parseLabCampaign(await this.labRequest(`/${labId(id)}/decision`, input)) }
+  async researchLabRun(id: string, input: LabMutation) { return parseLabCampaign(await this.labRequest(`/${labId(id)}/run`, input)) }
+  async researchLabAdvance(id: string, input: LabMutation) { return parseLabCampaign(await this.labRequest(`/${labId(id)}/continue`, input)) }
+  async researchLabCorrectInputs(id: string, input: LabCorrection) { return parseLabCampaign(await this.labRequest(`/${labId(id)}/correct-inputs`, input)) }
+  async researchLabReconcileDependencies(id: string) { return parseLabCampaign(await this.labRequest(`/${labId(id)}/dependencies/reconcile`, {})) }
+  async researchLabHistory(id: string, before?: string) { return parseLabHistory(await this.labRequest(`/${labId(id)}/history${labCursorQuery(before)}`)) }
+  async researchLabArtifact(id: string, hash: string) { return parseLabArtifact(await this.labRequest(`/${labId(id)}/artifacts/${labHash(hash)}`), hash) }
+  async researchLabProtocol(id: string) { const identifier = labProtocolId(id); return parseLabProtocol(await this.labRequest(`/protocols/${identifier}`), identifier) }
+  async researchModelList(campaign: string, before?: number, branch?: string) { if (before !== undefined && (!Number.isSafeInteger(before) || before < 1)) throw new Error('Invalid research model cursor.'); const parts = [...(branch === undefined ? [] : [`branch_id=${labBranchId(branch)}`]), ...(before === undefined ? [] : [`before=${before}`, 'limit=50'])]; return parseResearchModelPage(await this.labRequest(`/${labId(campaign)}/model-jobs${parts.length ? '?'+parts.join('&') : ''}`), campaign, branch) }
+  async researchModelCreate(campaign: string, input: ResearchModelCreate) { return parseResearchJob(await this.labRequest(`/${labId(campaign)}/model-jobs`, input), campaign, undefined, input.branch_id) }
+  async researchModelGet(campaign: string, job: string) { return parseResearchJob(await this.labRequest(`/${labId(campaign)}/model-jobs/${labId(job)}`), campaign, job) }
+  async researchModelStart(campaign: string, job: string) { return parseResearchJob(await this.labRequest(`/${labId(campaign)}/model-jobs/${labId(job)}/start`, {}), campaign, job) }
+  async researchModelWait(campaign: string, job: string) { return parseResearchJob(await this.privilegedNativeRequest(`/api/research/lab/${labId(campaign)}/model-jobs/${labId(job)}/wait`, {}, 35000, 200, 4 * 1024 * 1024), campaign, job) }
+  async researchModelCancel(campaign: string, job: string) { return parseResearchJob(await this.privilegedNativeRequest(`/api/research/lab/${labId(campaign)}/model-jobs/${labId(job)}/cancel`, { method: 'POST', body: '{}' }, 180000, 200, 4 * 1024 * 1024), campaign, job) }
+  async researchModelArtifact(campaign: string, job: string, hash: string) { return parseResearchModelArtifact(await this.labRequest(`/${labId(campaign)}/model-jobs/${labId(job)}/artifacts/${labHash(hash)}`), hash) }
+  async researchLabExport(id: string) {
+    const campaignId = labId(id)
+    const json = await this.privilegedNativeRequest<string>(`/api/research/lab/${campaignId}/export`, {}, DEFAULT_REQUEST_TIMEOUT_MS, 200, 16 * 1024 * 1024, 'text')
+    const bundle = parseLabExport(JSON.parse(json), campaignId)
+    // Save the server's original bytes. Parsing and reserializing can change
+    // 1.0 to 1 and invalidate Python's typed-number canonical checksums.
+    return { json, campaign_id: campaignId, bundle_sha256: bundle.bundle_sha256 }
+  }
+
+  async ideaLabList() {
+    return parseIdeaPage(await this.privilegedNativeRequest('/api/research/ideas'))
+  }
+  async ideaLabGet(id: string) {
+    return parseIdeaSession(await this.privilegedNativeRequest(`/api/research/ideas/${ideaSessionId(id)}`, {}, DEFAULT_REQUEST_TIMEOUT_MS, 200, 4 * 1024 * 1024))
+  }
+  async ideaLabPaper(id: string, sourceId: string, sourceHash?: string, generationId?: string) {
+    if (sourceHash !== undefined && !/^[a-f0-9]{64}$/.test(sourceHash)) throw new Error('Invalid Idea Lab source version.')
+    if (generationId !== undefined && !/^[a-f0-9]{32}$/.test(generationId)) throw new Error('Invalid Idea Lab generation version.')
+    const query = [sourceHash ? `source_hash=${sourceHash}` : '', generationId ? `generation_id=${generationId}` : ''].filter(Boolean).join('&')
+    const path = `/api/research/ideas/${ideaSessionId(id)}/papers/${ideaSourceSegment(sourceId)}${query ? `?${query}` : ''}`
+    const result = parseIdeaPaper(await this.privilegedNativeRequest(path), sourceId, sourceHash, generationId)
+    if (sourceHash && createHash('sha256').update(result.source.text, 'utf8').digest('hex') !== sourceHash) throw new Error('The returned text does not match this frozen evidence version.')
+    return result
+  }
+  async ideaLabOriginal(id: string, sourceId: string, sourceHash: string, generationId: string, provenanceHash: string) {
+    const sessionId = ideaSessionId(id), segment = ideaSourceSegment(sourceId)
+    if (typeof sourceHash !== 'string' || !/^[a-f0-9]{64}$/.test(sourceHash)) throw new Error('Invalid Idea Lab source version.')
+    if (typeof generationId !== 'string' || !/^[a-f0-9]{32}$/.test(generationId) || typeof provenanceHash !== 'string' || !/^[a-f0-9]{64}$/.test(provenanceHash)) throw new Error('Invalid Idea Lab original provenance version.')
+    const path = `/api/research/ideas/${sessionId}/papers/${segment}/raw?source_hash=${sourceHash}&generation_id=${generationId}&provenance_hash=${provenanceHash}`
+    return parseIdeaOriginal(await this.privilegedNativeRequest(path, {}, DEFAULT_REQUEST_TIMEOUT_MS, 200, 16 * 1024 * 1024), sessionId, sourceId, sourceHash, generationId, provenanceHash)
+  }
+  async ideaLabActivities(id: string, before?: number) {
+    if (before !== undefined && (!Number.isSafeInteger(before) || before < 1)) throw new Error('Invalid Idea Lab activity cursor.')
+    return parseIdeaActivities(await this.privilegedNativeRequest(`/api/research/ideas/${ideaSessionId(id)}/activities${before === undefined ? '' : `?before=${before}`}`))
+  }
+  async ideaLabHistory(id: string) {
+    return parseIdeaPage(await this.privilegedNativeRequest(`/api/research/ideas/${ideaSessionId(id)}/history`))
+  }
+  async ideaLabCreate(input: IdeaCreateInput) {
+    return parseIdeaSession(await this.privilegedNativeRequest('/api/research/ideas', { method: 'POST', body: JSON.stringify(input) }, DEFAULT_REQUEST_TIMEOUT_MS, 200, 4 * 1024 * 1024))
+  }
+  async ideaLabGenerate(id: string, input: IdeaGenerateInput) {
+    return parseIdeaSession(await this.privilegedNativeRequest(`/api/research/ideas/${ideaSessionId(id)}/generate`, { method: 'POST', body: JSON.stringify(input) }, DEFAULT_REQUEST_TIMEOUT_MS, 200, 4 * 1024 * 1024))
+  }
+  async ideaLabCancel(id: string, input: { expected_revision: number }) {
+    return parseIdeaSession(await this.privilegedNativeRequest(`/api/research/ideas/${ideaSessionId(id)}/cancel`, { method: 'POST', body: JSON.stringify(input) }, DEFAULT_REQUEST_TIMEOUT_MS, 200, 4 * 1024 * 1024))
+  }
+  async ideaLabFollowup(id: string, input: IdeaFollowupInput) {
+    return parseIdeaSession(await this.privilegedNativeRequest(`/api/research/ideas/${ideaSessionId(id)}/followup`, { method: 'POST', body: JSON.stringify(input) }, DEFAULT_REQUEST_TIMEOUT_MS, 200, 4 * 1024 * 1024))
+  }
+  async ideaLabDecision(id: string, input: IdeaDecisionInput) {
+    return parseIdeaSession(await this.privilegedNativeRequest(`/api/research/ideas/${ideaSessionId(id)}/decision`, { method: 'POST', body: JSON.stringify(input) }, DEFAULT_REQUEST_TIMEOUT_MS, 200, 4 * 1024 * 1024))
   }
 
   async sendTurn(
@@ -2566,7 +2656,8 @@ export class AgentServerClient {
     init: RequestInit = {},
     timeoutMs: number | null = DEFAULT_REQUEST_TIMEOUT_MS,
     expectedStatus?: number,
-    maxResponseBytes?: number
+    maxResponseBytes?: number,
+    responseFormat: 'json' | 'text' = 'json'
   ): Promise<T> {
     const configuration = this.configuration
     const target = new URL(configurationURL(configuration, path))
@@ -2576,10 +2667,15 @@ export class AgentServerClient {
     if (!isPrivilegedNativeControlTarget(target, server, serverPrefix, method)) {
       throw new Error('Privileged native control route is invalid.')
     }
-    // Conflict results are file contents, not a tiny control message. Keep this
-    // larger bound exclusive to the validated Git action route.
+    // File conflict resolutions and pasted research sources need larger bodies.
+    // Keep those bounds exclusive to their validated native routes.
     const gitAction = /^\/api\/sessions\/[A-Za-z0-9_-]{1,128}\/workspace\/git\/action$/.test(target.pathname.slice(serverPrefix.length))
-    const body = boundedJSONRequestBody(init.body, method, gitAction ? 8 * 1024 * 1024 : SECURE_PEER_MAX_REQUEST_BYTES)
+    const ideaSourceUpload = target.pathname.slice(serverPrefix.length) === '/api/research/ideas' && method === 'POST'
+    const ideaFeedback = /^\/api\/research\/ideas\/[A-Za-z0-9_-]{1,128}\/(followup|decision)$/.test(target.pathname.slice(serverPrefix.length)) && method === 'POST'
+    const labInput = /^\/api\/research\/lab(?:\/[A-Za-z0-9_-]{1,128}\/correct-inputs)?$/.test(target.pathname.slice(serverPrefix.length)) && method === 'POST'
+    const labDecision = /^\/api\/research\/lab\/[A-Za-z0-9_-]{1,128}\/decision$/.test(target.pathname.slice(serverPrefix.length)) && method === 'POST'
+    const branchMutation = /^\/api\/research\/lab\/[A-Za-z0-9_-]{1,128}\/branches(?:\/[A-Za-z0-9][A-Za-z0-9_-]{0,63}\/(plan|answers|decision|control|run))?$/.test(target.pathname.slice(serverPrefix.length)) && method === 'POST'
+    const body = boundedJSONRequestBody(init.body, method, gitAction ? 8 * 1024 * 1024 : ideaSourceUpload || labInput ? 2 * 1024 * 1024 : ideaFeedback ? 512 * 1024 : labDecision || branchMutation ? 384 * 1024 : SECURE_PEER_MAX_REQUEST_BYTES)
     const response = await securePeerNodeResponse(target, {
       method,
       headers: privilegedNativeTransportHeaders(configuration.token, body),
@@ -2602,7 +2698,7 @@ export class AgentServerClient {
       throw new ServerError(response.status, detail, rawDetail)
     }
     if (response.status === 204) return undefined as T
-    return response.json() as Promise<T>
+    return (responseFormat === 'text' ? response.text() : response.json()) as Promise<T>
   }
 
   private async requestText(path: string): Promise<string> {
@@ -3165,6 +3261,38 @@ function isPrivilegedNativeControlTarget(
     || !target.pathname.startsWith(`${serverPrefix}/api/`)
   ) return false
   const path = target.pathname.slice(serverPrefix.length)
+  if (/^\/api\/research\/lab\/protocols\/(planning-v0\.5|records-v0\.5|execution-v0\.5|analysis-review-v0\.5|literature-cache-v0\.5)$/.test(path)
+    || /^\/api\/research\/lab\/[A-Za-z0-9_-]{1,128}\/export$/.test(path)
+    || /^\/api\/research\/lab\/[A-Za-z0-9_-]{1,128}\/dependencies\/export$/.test(path)) return method === 'GET' && !target.search
+  const branchRoute = /^\/api\/research\/lab\/[A-Za-z0-9_-]{1,128}\/branches(?:\/([A-Za-z0-9][A-Za-z0-9_-]{0,63})\/(plan|answers|decision|control|run))?$/.exec(path)
+  if (branchRoute) return !target.search && (!branchRoute[1] ? method === 'GET' || method === 'POST' : method === 'POST')
+  const modelJobRoute = /^\/api\/research\/lab\/[A-Za-z0-9_-]{1,128}\/model-jobs(?:\/([A-Za-z0-9_-]{1,128})(?:\/(wait|start|cancel|artifacts\/[a-f0-9]{64}))?)?$/.exec(path)
+  if (modelJobRoute) {
+    if (!modelJobRoute[1] && method === 'GET') return !target.search || /^\?before=[1-9][0-9]{0,15}&limit=50$/.test(target.search) || /^\?branch_id=[A-Za-z0-9][A-Za-z0-9_-]{0,63}(?:&before=[1-9][0-9]{0,15}&limit=50)?$/.test(target.search)
+    return !target.search && (!modelJobRoute[1] ? method === 'POST' : method === (['start', 'cancel'].includes(modelJobRoute[2]) ? 'POST' : 'GET'))
+  }
+  if (path === '/api/research/lab/capabilities' || /^\/api\/research\/lab\/idea-seed\/[A-Za-z0-9_-]{1,128}$/.test(path)
+    || /^\/api\/research\/lab\/[A-Za-z0-9_-]{1,128}\/artifacts\/[a-f0-9]{64}$/.test(path)) return method === 'GET' && !target.search
+  if (/^\/api\/research\/lab\/[A-Za-z0-9_-]{1,128}\/dependencies\/reconcile$/.test(path)) return method === 'POST' && !target.search
+  const labRoute = /^\/api\/research\/lab(?:\/([A-Za-z0-9_-]{1,128})(?:\/(decision|run|continue|correct-inputs|history))?)?$/.exec(path)
+  if (labRoute) {
+    if (method === 'GET' && (!labRoute[1] || labRoute[2] === 'history')) return !target.search || /^\?before=[A-Za-z0-9_-]{1,1024}&limit=50$/.test(target.search)
+    return !target.search && (!labRoute[1] ? method === 'POST' : !labRoute[2] ? method === 'GET' : labRoute[2] === 'history' ? false : method === 'POST')
+  }
+  const ideaRawRoute = /^\/api\/research\/ideas\/[A-Za-z0-9_-]{1,128}\/papers\/([^/]+)\/raw$/.exec(path)
+  if (ideaRawRoute) {
+    if (method !== 'GET' || !/^\?source_hash=[a-f0-9]{64}&generation_id=[a-f0-9]{32}&provenance_hash=[a-f0-9]{64}$/.test(target.search)) return false
+    try { return ideaSourceSegment(decodeURIComponent(ideaRawRoute[1])) === ideaRawRoute[1] } catch { return false }
+  }
+  const ideaPaperRoute = /^\/api\/research\/ideas\/[A-Za-z0-9_-]{1,128}\/papers\/([^/]+)$/.exec(path)
+  if (ideaPaperRoute) {
+    if (method !== 'GET' || target.search && !/^\?(?:source_hash=[a-f0-9]{64}(?:&generation_id=[a-f0-9]{32})?|generation_id=[a-f0-9]{32})$/.test(target.search)) return false
+    try { return ideaSourceSegment(decodeURIComponent(ideaPaperRoute[1])) === ideaPaperRoute[1] } catch { return false }
+  }
+  if (/^\/api\/research\/ideas\/[A-Za-z0-9_-]{1,128}\/activities$/.test(path)) return method === 'GET' && (!target.search || /^\?before=[1-9][0-9]{0,15}$/.test(target.search))
+  const ideaRoute = /^\/api\/research\/ideas(?:\/([A-Za-z0-9_-]{1,128})(?:\/(generate|cancel|decision|followup|history))?)?$/.exec(path)
+  if (ideaRoute) return !target.search && (!ideaRoute[1] ? method === 'GET' || method === 'POST'
+    : ideaRoute[2] === 'history' || !ideaRoute[2] ? method === 'GET' : method === 'POST')
   if (/^\/api\/sessions\/[A-Za-z0-9_-]{1,128}\/claude\/goal$/.test(path)) {
     return !target.search && (method === 'PUT' || method === 'DELETE')
   }

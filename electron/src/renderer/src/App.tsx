@@ -30,6 +30,8 @@ import { InspectorDock } from './components/InspectorDock'
 import { InspectorWorkspace, type InspectorWorkspaceTab } from './components/InspectorWorkspace'
 import { SideChatPopover } from './components/SideChatPopover'
 import { SideChatController } from './lib/side-chat'
+import { IdeaLab } from './components/IdeaLab'
+import { ResearchLab } from './components/ResearchLab'
 import { Sidebar } from './components/Sidebar'
 import { TerminalDock } from './components/TerminalDock'
 import { TeamNetwork, type PendingSecurePeerInvite, type TeamNetworkMailboxTarget, type TeamNetworkMessageTarget, type TeamNetworkSection } from './components/TeamNetwork'
@@ -198,6 +200,9 @@ export function App() {
     } finally { setRetryingStorage(false) }
   }
   const [fileDropActive, setFileDropActive] = useState(false)
+  const [ideaLabScopeKey, setIdeaLabScopeKey] = useState<string | null>(null)
+  const [labMode, setLabMode] = useState<'idea' | 'research'>('idea')
+  const [researchOriginId, setResearchOriginId] = useState<string | null>(null)
   const [teamspaceScopeKey, setTeamspaceScopeKey] = useState<string | null>(null)
   const [teamspaceInitialSection, setTeamspaceInitialSection] = useState<TeamNetworkSection>('mail')
   const [teamspaceMailboxTarget, setTeamspaceMailboxTarget] = useState<TeamNetworkMailboxTarget | null>(null)
@@ -219,6 +224,7 @@ export function App() {
   const reviewTarget = scopedReviewTarget?.profileId === activeProfileId && scopedReviewTarget.profileGeneration === profileGeneration
     ? scopedReviewTarget.target
     : null
+  const ideaLabOpen = ideaLabScopeKey === activeRenderKey
   const teamspaceOpen = teamspaceScopeKey === activeRenderKey
   const previousTeamspaceOpen = useRef(false)
   useEffect(() => {
@@ -243,7 +249,7 @@ export function App() {
   }, [activeProfileId, activeServerIdentity])
   const reviewVisible = Boolean(reviewTarget) && inspectorTab === 'review'
   const dockOpen = inspectorVisible || reviewVisible
-  const visibleDockOpen = !teamspaceOpen && dockOpen
+  const visibleDockOpen = !teamspaceOpen && !ideaLabOpen && dockOpen
   const splitOpen = Boolean(primarySession && secondarySession)
   const clearFileDragTimeout = useCallback(() => {
     if (fileDragTimeout.current !== null) {
@@ -352,6 +358,35 @@ export function App() {
     if (splitWorkspaceTarget) splitWorkspaceOverlayRef.current?.focus({ preventScroll: true })
   }, [splitWorkspaceTarget])
 
+  useEffect(() => {
+    const open = () => {
+      if (useAppStore.getState().switchingProfileId || window.agentsDock.sharedChat) return
+      setLabMode('idea')
+      setIdeaLabScopeKey(activeRenderKey)
+      setTeamspaceScopeKey(null)
+      setScopedReviewTarget(null)
+      useAppStore.getState().setInspectorVisible(false)
+    }
+    const openResearch = (event: Event) => {
+      if (useAppStore.getState().switchingProfileId || window.agentsDock.sharedChat) return
+      const ideaId = (event as CustomEvent).detail?.ideaId
+      setResearchOriginId(typeof ideaId === 'string' ? ideaId : null)
+      setLabMode('research')
+      setIdeaLabScopeKey(activeRenderKey)
+      setTeamspaceScopeKey(null)
+      setScopedReviewTarget(null)
+      useAppStore.getState().setInspectorVisible(false)
+    }
+    const close = () => setIdeaLabScopeKey(null)
+    window.addEventListener('agentsdock:open-idea-lab', open)
+    window.addEventListener('agentsdock:open-research-lab', openResearch)
+    window.addEventListener('agentsdock:close-teamspace', close)
+    return () => {
+      window.removeEventListener('agentsdock:open-idea-lab', open)
+      window.removeEventListener('agentsdock:open-research-lab', openResearch)
+      window.removeEventListener('agentsdock:close-teamspace', close)
+    }
+  }, [activeRenderKey])
   useEffect(() => { trackEvent('app_launched') }, [])
   useEffect(() => { void initialize() }, [initialize])
   useEffect(() => installRendererStallMonitor(
@@ -582,6 +617,7 @@ export function App() {
     // A pending invite is a user handoff, not a credential for the current
     // profile. Keep it while the user chooses which server should connect.
     if (pendingSecurePeerInvite && initialized && !switchingProfileId && activeProfileId && activeServerIdentity) {
+      setIdeaLabScopeKey(null)
       setTeamspaceScopeKey(activeRenderKey)
       return
     }
@@ -673,6 +709,7 @@ export function App() {
   useEffect(() => {
     const closeSurface = () => {
       if (closeTopTransient()) return
+      if (ideaLabOpen) { setIdeaLabScopeKey(null); return }
       if (teamspaceOpen) { setTeamspaceScopeKey(null); return }
       const closeWorkspaceFile = new Event('agentsdock:workspace-close-active', { cancelable: true })
       window.dispatchEvent(closeWorkspaceFile)
@@ -690,7 +727,7 @@ export function App() {
     }
     window.addEventListener('agentsdock:close-surface', closeSurface)
     return () => window.removeEventListener('agentsdock:close-surface', closeSurface)
-  }, [dismissSplitWorkspace, focusedChatPane, reviewVisible, selectedSessionId, setTerminalOpen, splitOpen, teamspaceOpen, terminalOpen])
+  }, [dismissSplitWorkspace, focusedChatPane, reviewVisible, selectedSessionId, setTerminalOpen, splitOpen, teamspaceOpen, ideaLabOpen, terminalOpen])
   useEffect(() => window.agentsDock.events.on('native:close-request', ({ requestId }) => {
     void (async () => {
       let saved = false
@@ -861,11 +898,13 @@ export function App() {
   }
 
   return (
-    <main ref={shellRef} className={`app-shell ${sidebarVisible ? '' : 'sidebar-hidden '}${visibleDockOpen ? 'inspector-open' : ''}${reviewVisible && !teamspaceOpen ? ' review-open' : ''}${teamspaceOpen ? ' teamspace-open' : ''}${switchingProfileId ? ' profile-switching' : ''}`} style={columnStyle}>
+    <main ref={shellRef} className={`app-shell ${sidebarVisible ? '' : 'sidebar-hidden '}${visibleDockOpen ? 'inspector-open' : ''}${reviewVisible && !teamspaceOpen ? ' review-open' : ''}${teamspaceOpen || ideaLabOpen ? ' teamspace-open' : ''}${switchingProfileId ? ' profile-switching' : ''}`} style={columnStyle}>
       <ChatFontApplier />
       <Sidebar key={`sidebar:${activeRenderKey}`} hidden={!sidebarVisible} />
-      <section className={`conversation-pane${teamspaceOpen ? ' teamspace-pane' : splitOpen ? ' split-open' : selectedSession ? ' workspace-editor-open' : ''}`} aria-busy={Boolean(switchingProfileId)} inert={switchingProfileId ? true : undefined}>
-        {teamspaceOpen
+      <section className={`conversation-pane${teamspaceOpen || ideaLabOpen ? ' teamspace-pane' : splitOpen ? ' split-open' : selectedSession ? ' workspace-editor-open' : ''}`} aria-busy={Boolean(switchingProfileId)} inert={switchingProfileId ? true : undefined}>
+        {ideaLabOpen
+          ? labMode === 'research' ? <ResearchLab key={`research-lab:${activeRenderKey}:${researchOriginId ?? ''}`} initialIdeaId={researchOriginId} scope={activeProfileId ? { profileId: activeProfileId, profileGeneration, serverIdentity: activeServerIdentity } : null} onClose={() => setIdeaLabScopeKey(null)} /> : <IdeaLab key={`idea-lab:${activeRenderKey}`} scope={activeProfileId ? { profileId: activeProfileId, profileGeneration, serverIdentity: activeServerIdentity } : null} onClose={() => setIdeaLabScopeKey(null)} />
+          : teamspaceOpen
           ? <TeamNetwork
             key={`teamspace:${activeRenderKey}`}
             initialMailboxTarget={teamspaceMailboxTarget}
@@ -960,7 +999,7 @@ export function App() {
         inspectorOpen={visibleDockOpen}
         inspectorMode={reviewVisible ? 'review' : 'inspector'}
       />}
-      {!switchingProfileId && !teamspaceOpen && selectedSession && <TerminalDock
+      {!switchingProfileId && !teamspaceOpen && !ideaLabOpen && selectedSession && <TerminalDock
         key={`terminal:${selectedRenderKey}`}
         workspaceKey={activeProfileKey}
         open={terminalOpen}

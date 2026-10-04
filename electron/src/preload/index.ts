@@ -53,6 +53,53 @@ const api: AgentsDockAPI = {
     acknowledgePage: input => ipcRenderer.invoke('team:mail-hints:acknowledge-page', input),
     acknowledgeBulletinRefresh: input => ipcRenderer.invoke('team:mail-hints:acknowledge-bulletin', input)
   },
+  researchLab: {
+    branches: {
+      get: (scope, campaign) => ipcRenderer.invoke('research-branches:get', scope, campaign),
+      enable: (scope, campaign, input) => ipcRenderer.invoke('research-branches:enable', scope, campaign, input),
+      plan: (scope, campaign, branch, input) => ipcRenderer.invoke('research-branches:plan', scope, campaign, branch, input),
+      answers: (scope, campaign, branch, input) => ipcRenderer.invoke('research-branches:answers', scope, campaign, branch, input),
+      decision: (scope, campaign, branch, input) => ipcRenderer.invoke('research-branches:decision', scope, campaign, branch, input),
+      control: (scope, campaign, branch, input) => ipcRenderer.invoke('research-branches:control', scope, campaign, branch, input),
+      run: (scope, campaign, branch, input) => ipcRenderer.invoke('research-branches:run', scope, campaign, branch, input),
+    },
+    models: {
+      list: (scope, campaign, before, branch) => ipcRenderer.invoke('research-model:list', scope, campaign, before, branch),
+      create: (scope, campaign, input) => ipcRenderer.invoke('research-model:create', scope, campaign, input),
+      get: (scope, campaign, job) => ipcRenderer.invoke('research-model:get', scope, campaign, job),
+      start: (scope, campaign, job) => ipcRenderer.invoke('research-model:start', scope, campaign, job),
+      wait: (scope, campaign, job) => ipcRenderer.invoke('research-model:wait', scope, campaign, job),
+      cancel: (scope, campaign, job) => ipcRenderer.invoke('research-model:cancel', scope, campaign, job),
+      artifact: (scope, campaign, job, hash) => ipcRenderer.invoke('research-model:artifact', scope, campaign, job, hash)
+    },
+    capabilities: scope => ipcRenderer.invoke('research-lab:capabilities', scope),
+    list: (scope, before) => ipcRenderer.invoke('research-lab:list', scope, before),
+    get: (scope, id) => ipcRenderer.invoke('research-lab:get', scope, id),
+    ideaSeed: (scope, id) => ipcRenderer.invoke('research-lab:idea-seed', scope, id),
+    create: (scope, input) => ipcRenderer.invoke('research-lab:create', scope, input),
+    decision: (scope, id, input) => ipcRenderer.invoke('research-lab:decision', scope, id, input),
+    run: (scope, id, input) => ipcRenderer.invoke('research-lab:run', scope, id, input),
+    advance: (scope, id, input) => ipcRenderer.invoke('research-lab:continue', scope, id, input),
+    correctInputs: (scope, id, input) => ipcRenderer.invoke('research-lab:correct-inputs', scope, id, input),
+    reconcileDependencies: (scope, id) => ipcRenderer.invoke('research-lab:reconcile-dependencies', scope, id),
+    history: (scope, id, before) => ipcRenderer.invoke('research-lab:history', scope, id, before),
+    artifact: (scope, id, hash) => ipcRenderer.invoke('research-lab:artifact', scope, id, hash),
+    protocol: (scope, id) => ipcRenderer.invoke('research-lab:protocol', scope, id),
+    export: (scope, id) => ipcRenderer.invoke('research-lab:export', scope, id)
+  },
+  ideaLab: {
+    list: scope => ipcRenderer.invoke('idea-lab:list', scope),
+    get: (scope, id) => ipcRenderer.invoke('idea-lab:get', scope, id),
+    paper: (scope, id, sourceId, sourceHash, generationId) => ipcRenderer.invoke('idea-lab:paper', scope, id, sourceId, sourceHash, generationId),
+    saveOriginal: (scope, id, sourceId, sourceHash, generationId, provenanceHash) => ipcRenderer.invoke('idea-lab:save-original', scope, id, sourceId, sourceHash, generationId, provenanceHash),
+    activities: (scope, id, before) => ipcRenderer.invoke('idea-lab:activities', scope, id, before),
+    history: (scope, id) => ipcRenderer.invoke('idea-lab:history', scope, id),
+    create: (scope, input) => ipcRenderer.invoke('idea-lab:create', scope, input),
+    generate: (scope, id, input) => ipcRenderer.invoke('idea-lab:generate', scope, id, input),
+    cancel: (scope, id, input) => ipcRenderer.invoke('idea-lab:cancel', scope, id, input),
+    followup: (scope, id, input) => ipcRenderer.invoke('idea-lab:followup', scope, id, input),
+    decision: (scope, id, input) => ipcRenderer.invoke('idea-lab:decision', scope, id, input)
+  },
   bootstrap: () => ipcRenderer.invoke('app:bootstrap'),
   language: {
     get: () => ipcRenderer.invoke('language:get'),

@@ -217,6 +217,9 @@ import type {
 } from './secure-peer'
 
 export interface AgentsDockAPI {
+  /** Native desktop only; shared web guests cannot run the Idea Lab. */
+  ideaLab?: import('./idea-lab').IdeaLabAPI
+  researchLab?: import('./research-lab').ResearchLabAPI
   /** Native operator-only controls, deliberately absent from shared-chat clients. */
   workspaceGit?: {
     status(scope: WorkspaceProfileScope, sessionId: string): Promise<import('./workspace-git').WorkspaceGitStatus>

@@ -179,6 +179,15 @@ from claude_background_reconciliation import (
     reconciliation_envelope,
 )
 from public_chat_share_routes import create_public_chat_share_router, redact_public_share_path
+from research_action_routes import create_research_action_router
+from research_lab_routes import create_research_lab_router
+from research_model_routes import create_research_model_router
+from research_dependencies import ResearchDependencies
+from idea_lab_routes import create_router as create_idea_lab_router
+import idea_generation
+import idea_evidence_cache
+import idea_discovery
+import idea_literature
 from interactive_chat_share_routes import create_interactive_chat_share_router
 import side_questions
 import title_generation
@@ -78137,6 +78146,11 @@ async def bounded_shutdown_phase(
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from execution_ownership import acquire_state_ownership
+    from research_backup import retain_research_service_guard
+
+    # Keep offline research maintenance excluded until this process exits.
+    # Bounded shutdown may leave owned finalizers after lifespan returns.
+    retain_research_service_guard(STATE_DIR / "research")
 
     # Both the maintained legacy entrypoint and the split worker pass here.
     # Retain the descriptor until process exit: bounded shutdown can leave
@@ -79256,6 +79270,7 @@ async def require_agent_token(request: Request, call_next):
         or request.url.path == "/api/admin/interactive-chat-shares"
         or request.url.path.startswith("/api/admin/interactive-chat-shares/")
     )
+    research_action_route = request.url.path.startswith("/api/research/")
     interactive_chat_guest_route = request.url.path.startswith("/interactive-chat/")
     secure_peer_admin_route = (
         request.url.path == "/api/admin/secure-peers/v1"
@@ -79289,6 +79304,7 @@ async def require_agent_token(request: Request, call_next):
         or team_hub_host_admin_route
         or codex_goals_admin_route
         or public_chat_shares_admin_route
+        or research_action_route
         or interactive_chat_guest_route
         or codex_provider_mcp_route
     ):
@@ -79378,6 +79394,7 @@ async def require_agent_token(request: Request, call_next):
         or team_hub_host_admin_route
         or codex_goals_admin_route
         or public_chat_shares_admin_route
+        or research_action_route
     ):
         if privileged_native_browser_request_forbidden(request):
             return JSONResponse({"detail": "forbidden"}, status_code=403)
@@ -83911,6 +83928,82 @@ app.include_router(create_interactive_chat_share_router(
     open_video=open_shared_chat_video_for_share,
     open_file=open_shared_chat_file_for_share,
     max_upload_bytes=MAX_UPLOAD_BYTES,
+))
+
+
+async def generate_idea_lab_stage(stage: str, brief: dict, previous: dict, on_event=None, *, cache_request=None, on_dispatch=None) -> dict:
+    return await idea_generation.generate_idea_stage(
+        stage, brief, previous, on_event=on_event, executable=CODEX_BIN, model=None, env=runner_env(),
+        cache_request=cache_request, on_dispatch=on_dispatch,
+    )
+
+
+async def discover_idea_literature(brief: dict, context: dict, on_event=None) -> dict:
+    library = idea_literature.SourceLibrary(STATE_DIR / "research" / "library")
+    catalog = await asyncio.to_thread(library.search, brief)
+    if on_event:
+        await on_event({"agent": "literature", "type": "library_searched", "task": "discovery",
+                        "summary": f"Checked shared source library first: {len(catalog)} versioned entries available for relevance assessment."})
+    return await idea_discovery.discover_idea_sources(
+        brief, {**context, "shared_library": catalog}, on_event=on_event, executable=CODEX_BIN, model=None, env=runner_env(),
+    )
+
+
+async def retrieve_idea_literature(candidates: list, brief: dict, on_event=None) -> dict:
+    return await idea_literature.retrieve_papers(
+        candidates, brief, on_event, library_root=STATE_DIR / "research" / "library",
+    )
+
+
+app.include_router(create_idea_lab_router(
+    storage_root=STATE_DIR / "research" / "ideas",
+    source_library_root=STATE_DIR / "research" / "library",
+    authorize=require_native_admin_control,
+    generate=generate_idea_lab_stage,
+    discover=discover_idea_literature,
+    retrieve=retrieve_idea_literature,
+    evidence_cache_factory=lambda: idea_evidence_cache.LiteratureEvidenceCache(
+        STATE_DIR / "research" / "evidence-cache", STATE_DIR / "research" / "ideas",
+        namespace="native-admin-local",
+    ),
+))
+
+
+app.include_router(create_research_action_router(
+    storage_root=STATE_DIR / "research",
+    authorize=require_native_admin_control,
+))
+
+_research_dependencies = None
+_research_dependencies_lock = threading.Lock()
+
+
+def research_dependencies():
+    """Lazy service-owned correction state; native guards run before access."""
+    global _research_dependencies
+    with _research_dependencies_lock:
+        if _research_dependencies is None:
+            _research_dependencies = ResearchDependencies(
+                STATE_DIR / "research" / "dependencies",
+                STATE_DIR / "research" / "ideas",
+                STATE_DIR / "research" / "lab",
+            )
+        return _research_dependencies
+
+
+app.include_router(create_research_lab_router(
+    storage_root=STATE_DIR / "research" / "lab",
+    idea_root=STATE_DIR / "research" / "ideas",
+    authorize=require_native_admin_control,
+    dependency_factory=research_dependencies,
+))
+
+app.include_router(create_research_model_router(
+    storage_root=STATE_DIR / "research" / "model-jobs",
+    lab_root=STATE_DIR / "research" / "lab",
+    authorize=require_native_admin_control,
+    native_options=lambda: {"executable": CODEX_BIN, "model": None, "env": runner_env()},
+    dependency_factory=research_dependencies,
 ))
 
 

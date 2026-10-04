@@ -1,0 +1,5 @@
+# Frozen Team Hub parity uses the upstream LF bytes on every checkout.
+/server/agentsdock_team_hub/*.py text eol=lf
+/server/agentsdock_team_hub/migrations/*.sql text eol=lf
+/server/install.sh text eol=lf
+/server/deploy.sh text eol=lf

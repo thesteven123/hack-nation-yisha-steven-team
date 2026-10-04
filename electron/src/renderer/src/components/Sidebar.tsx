@@ -9,7 +9,7 @@ import {
 } from '@dnd-kit/core'
 import {
   Archive, ArchiveRestore, ChevronDown, ChevronRight, Folder, FolderPlus, GripVertical, Inbox, MoreHorizontal,
-  Columns2, PanelLeftClose, Pencil, Pin, PinOff, Plus, RefreshCw, Search, Settings, Share2, Trash2, Undo2, UsersRound
+  FlaskConical, Columns2, PanelLeftClose, Pencil, Pin, PinOff, Plus, RefreshCw, Search, Settings, Share2, Trash2, Undo2, UsersRound
 } from 'lucide-react'
 import type { Session } from '@shared/types'
 import { completedPrefixForkAvailable } from '@shared/session-fork'
@@ -240,6 +240,8 @@ export function Sidebar({ hidden = false }: { hidden?: boolean }) {
       </div>
       <ServerSelector />
       <div className="sidebar-actions">
+        <button className="sidebar-action sidebar-action-labeled" aria-label={t('ideaLab.name')} disabled={Boolean(switchingProfileId)} onClick={() => window.dispatchEvent(new Event('agentsdock:open-idea-lab'))}><FlaskConical size={15} /><span>{t('ideaLab.name')}</span></button>
+        <button className="sidebar-action sidebar-action-labeled" aria-label={t('researchLab.name')} disabled={Boolean(switchingProfileId)} onClick={() => window.dispatchEvent(new Event('agentsdock:open-research-lab'))}><FlaskConical size={15} /><span>{t('researchLab.name')}</span></button>
         <button className="sidebar-action sidebar-action-labeled sidebar-team-network-action" title={t('teamNetwork.openBeta')} aria-label={t('teamNetwork.open')} aria-describedby={newMailArrivals || newBulletinUpdates ? 'sidebar-new-mail-arrivals' : undefined} disabled={Boolean(switchingProfileId)} onClick={() => window.dispatchEvent(new CustomEvent('agentsdock:open-teamspace', { detail: { section: newBulletinUpdates && !newMailArrivals ? 'feed' : 'mail' } }))}><UsersRound size={15} /><span>{t('teamNetwork.name')} <small className="team-network-beta">{t('teamNetwork.beta')}</small></span>{(newMailArrivals || newBulletinUpdates) && <><span className="status-dot" aria-hidden="true" /><span id="sidebar-new-mail-arrivals" className="sr-only">{t(newMailArrivals && newBulletinUpdates ? 'teamNetwork.newTeamActivity' : newMailArrivals ? 'teamNetwork.newMailArrivals' : 'teamNetwork.newBulletinUpdates')}</span></>}</button>
         <button className="sidebar-action sidebar-action-labeled" title={t("ui.Sidebar.Sidebar.resume_chat_790e1b9")} aria-label={t("ui.Sidebar.Sidebar.resume_chat_790e1b9")} disabled={Boolean(switchingProfileId)} onClick={() => {
           const store = useAppStore.getState()

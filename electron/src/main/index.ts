@@ -20,6 +20,8 @@ import { workspacePathFromInternalLink } from '../shared/workspace-link-url'
 import { LazyTeamHubService } from './team-hub-lazy-service'
 import { TeamHubService } from './team-hub-service'
 import { resolveUserDataPath } from './user-data-path'
+import { readIdeaDevProfile } from './idea-dev-profile'
+import { SettingsStore } from './settings'
 import {
   SECURE_PEER_INVITE_EVENT,
   installSecurePeerDeepLinkLifecycle,
@@ -30,17 +32,27 @@ protocol.registerSchemesAsPrivileged([
   { scheme: 'agentsdock-media', privileges: { standard: true, secure: true, stream: true } }
 ])
 
-process.on('uncaughtException', error => { reportStorageError(error); appLog('fatal', 'uncaught exception', errorDetails(error)) })
-process.on('unhandledRejection', reason => { reportStorageError(reason); appLog('fatal', 'unhandled rejection', errorDetails(reason)) })
-
 // Keep the preview app's cache, drafts, and encrypted settings when the
 // production bundle replaces it as the canonical AgentsDock binary.
-app.setPath('userData', resolveUserDataPath(
+const requestedUserData = resolveUserDataPath(
   app.getPath('appData'),
   process.resourcesPath,
   app.isPackaged,
   process.env.AGENTSDOCK_USER_DATA
-))
+)
+// Reject an invalid development target before selecting it for any file logger
+// or settings migration. Even failure must not write into a protected profile.
+const ideaDevProfile = (() => {
+  try { return readIdeaDevProfile(process.env, app.isPackaged, requestedUserData) }
+  catch {
+    console.error('Idea Lab startup rejected: use its dedicated marked development profile.')
+    process.exit(1)
+  }
+})()
+app.setPath('userData', requestedUserData)
+if (ideaDevProfile) app.setPath('sessionData', requestedUserData)
+process.on('uncaughtException', error => { reportStorageError(error); appLog('fatal', 'uncaught exception', errorDetails(error)) })
+process.on('unhandledRejection', reason => { reportStorageError(reason); appLog('fatal', 'unhandled rejection', errorDetails(reason)) })
 
 if (!app.requestSingleInstanceLock()) {
   app.quit()
@@ -58,7 +70,7 @@ if (!app.requestSingleInstanceLock()) {
     mainWindow.show()
     mainWindow.focus()
   }
-  const protocolRegistered = installSecurePeerDeepLinkLifecycle({
+  const protocolRegistered = ideaDevProfile ? true : installSecurePeerDeepLinkLifecycle({
     packaged: app.isPackaged,
     platform: process.platform,
     defaultApp: process.defaultApp,
@@ -87,6 +99,17 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(() => {
     try {
+      if (ideaDevProfile) {
+        const settings = new SettingsStore()
+        const profiles = settings.listProfiles()
+        if (profiles.length !== 1 || (profiles[0].serverSetupComplete && profiles[0].name !== 'Idea Lab — isolated')) {
+          throw new Error('Refusing to replace existing profiles in the Idea Lab development directory.')
+        }
+        settings.updateProfile(settings.getActiveProfileId(), {
+          name: 'Idea Lab — isolated', serverUrl: ideaDevProfile.serverUrl,
+          accessToken: ideaDevProfile.accessToken, serverSetupComplete: true
+        })
+      }
       language = new LanguageSettings(app.getPath('userData'), () => app.getPreferredSystemLanguages()[0] || app.getLocale(), snapshot => {
         createMenu(() => mainWindow)
         for (const window of BrowserWindow.getAllWindows()) {
@@ -194,7 +217,7 @@ if (!app.requestSingleInstanceLock()) {
       installSecurePeerDeepLinkWindow(mainWindow, securePeerDeepLinks)
       service.addWindow(mainWindow)
       service.start()
-      updater.start()
+      if (!ideaDevProfile) updater.start()
       // The new app is already running. Reconcile its bundled server release
       // in the background; server state never blocks app installation/startup.
       const resumeCoordinatedUpdates = async (): Promise<void> => {
@@ -211,7 +234,7 @@ if (!app.requestSingleInstanceLock()) {
         }
         await coordinatedUpdates!.resume(bundledRelease, app.getVersion())
       }
-      void resumeCoordinatedUpdates().catch(error => {
+      if (!ideaDevProfile) void resumeCoordinatedUpdates().catch(error => {
         appLog('updater', 'could not resume coordinated updates', errorDetails(error))
         updater.setServerUpdateError(`Could not resume server updates: ${errorDetails(error).message}`)
       })
@@ -273,7 +296,7 @@ function createWindow(): BrowserWindow {
     minWidth: 1040,
     minHeight: 680,
     show: false,
-    title: 'AgentsDock',
+    title: ideaDevProfile ? 'AgentsDock — Idea Lab (Dev)' : 'AgentsDock',
     ...platformWindowOptions,
     backgroundColor: '#171717',
     webPreferences: {
@@ -290,6 +313,7 @@ function createWindow(): BrowserWindow {
   })
 
   window.once('ready-to-show', () => window.show())
+  if (ideaDevProfile) window.on('page-title-updated', event => event.preventDefault())
   window.webContents.on('preload-error', (_event, path, error) => appLog('preload', 'failed to load', { path, error: error.stack || error.message }))
   window.webContents.on('did-fail-load', (_event, code, description, url) => appLog('renderer', 'page load failed', { code, description, url }))
   window.webContents.on('render-process-gone', (_event, details) => appLog('renderer', 'process gone', details))

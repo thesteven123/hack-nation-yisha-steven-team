@@ -35,6 +35,10 @@ NEW_MODULES = {
     "team_mail_grants.py",
     "claude_history_repair.py", "claude_history_provenance.py", "codex_history_repair.py", "public_chat_shares.py",
     "public_chat_transcript.py", "public_chat_share_routes.py",
+    "research_actions.py", "research_action_routes.py",
+    "research_lab.py", "research_branches.py", "research_branch_controller.py", "research_hypotheses.py", "research_backup.py", "research_lab_routes.py", "research_lab_inspection.py", "research_lab_evaluation.py", "research_model_jobs.py", "research_model_routes.py", "research_dependencies.py",
+    "idea_lab.py", "idea_lab_routes.py", "idea_generation.py",
+    "idea_discovery.py", "idea_literature.py", "idea_evidence_cache.py", "idea_source_archive.py", "idea_source_view.py",
     "interactive_chat_shares.py", "interactive_chat_share_routes.py",
     "interactive_chat_share_web.py", "interactive_chat_projection.py", "interactive_chat_runtime.py",
     "interactive_chat_native.py", "interactive_chat_controls.py", "shared_chat_videos.py", "shared_chat_video_stream.py",
@@ -147,6 +151,17 @@ class ReleaseFileManifestTests(unittest.TestCase):
                 self.assertIn(f'"$STAGE_DIR/{name}"', self.installer)
                 self.assertIn(f"'$REMOTE_SERVER_DIR/{name}'", self.deployer)
                 self.assertIn(name.removesuffix(".py"), self.installer.split("PYTHONPATH=\"$STAGE_DIR\"")[-1])
+
+    def test_research_branches_and_exact_source_view_import_before_activation(self):
+        installer_smoke = self.installer.split('PYTHONPATH="$STAGE_DIR"')[-1]
+        deploy_smoke = "\n".join(
+            line for line in self.deployer.splitlines()
+            if "PYTHONPATH='$REMOTE_SERVER_DIR'" in line
+        )
+        for module in ("research_branches", "research_branch_controller", "idea_source_view"):
+            with self.subTest(module=module):
+                self.assertRegex(installer_smoke, rf"\bimport [^'\n;]*\b{module}\b")
+                self.assertRegex(deploy_smoke, rf"\bimport [^'\n;]*\b{module}\b")
 
     def test_claude_native_catalog_is_import_smoked_before_activation(self):
         module = "claude_model_catalog"

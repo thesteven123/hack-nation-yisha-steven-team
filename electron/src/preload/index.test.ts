@@ -26,6 +26,50 @@ import './index'
 
 describe('preload session IPC bridge', () => {
   beforeEach(() => electronHarness.invoke.mockReset())
+  it('exposes model task preparation, explicit starts, waits and cancellation as separate narrow calls', async () => {
+    const scope = { profileId: 'p', profileGeneration: 1, serverIdentity: 's' }, api = electronHarness.exposed!.researchLab!.models!
+    const input = { role: 'planner' as const, expected_revision: 1, idempotency_key: 'exact-key' }
+    await api.list(scope, 'campaign', 20); await api.create(scope, 'campaign', input); await api.get(scope, 'campaign', 'job'); await api.start(scope, 'campaign', 'job'); await api.wait(scope, 'campaign', 'job'); await api.cancel(scope, 'campaign', 'job'); await api.artifact(scope, 'campaign', 'job', 'a'.repeat(64))
+    expect(electronHarness.invoke.mock.calls).toEqual([['research-model:list', scope, 'campaign', 20], ['research-model:create', scope, 'campaign', input], ['research-model:get', scope, 'campaign', 'job'], ['research-model:start', scope, 'campaign', 'job'], ['research-model:wait', scope, 'campaign', 'job'], ['research-model:cancel', scope, 'campaign', 'job'], ['research-model:artifact', scope, 'campaign', 'job', 'a'.repeat(64)]])
+  })
+
+  it('forwards fourteen narrow Research Lab operations with scope, cursor and frozen request identity intact', async () => {
+    const scope = { profileId: 'research', profileGeneration: 8, serverIdentity: 'research-server' }
+    const api = electronHarness.exposed!.researchLab!
+    const common = { idempotency_key: 'stable-request', expected_revision: 2 }
+    const inputs = { baseline: [1, 2, 3, 4], treatment: [2, 3, 4, 5], unit: 'points', minimum_effect: 0.5 }
+    const create = { idempotency_key: 'create', entry: 'goal' as const, adapter_id: 'paired_numeric' as const, brief: { goal: 'Describe the supplied pairs', hypothesis: '', success_criteria: 'Bound the descriptive difference', constraints: '' }, inputs, budget: { max_actions: 4, max_rounds: 3 } }
+    const decision = { ...common, kind: 'select' as const, selected_action_id: 'action', feedback: 'My exact decision' }
+    const correction = { ...common, inputs, reason: 'Correct units' }
+    await api.capabilities(scope); await api.list(scope, 'cursor'); await api.get(scope, 'campaign'); await api.ideaSeed(scope, 'idea')
+    await api.create(scope, create); await api.decision(scope, 'campaign', decision); await api.run(scope, 'campaign', common); await api.advance(scope, 'campaign', common)
+    await api.correctInputs(scope, 'campaign', correction); await api.history(scope, 'campaign', 'older'); await api.artifact(scope, 'campaign', 'a'.repeat(64))
+    await api.protocol(scope, 'planning-v0.5'); await api.export(scope, 'campaign'); await api.reconcileDependencies(scope, 'campaign')
+    expect(electronHarness.invoke.mock.calls).toEqual([
+      ['research-lab:capabilities', scope], ['research-lab:list', scope, 'cursor'], ['research-lab:get', scope, 'campaign'], ['research-lab:idea-seed', scope, 'idea'],
+      ['research-lab:create', scope, create], ['research-lab:decision', scope, 'campaign', decision], ['research-lab:run', scope, 'campaign', common], ['research-lab:continue', scope, 'campaign', common],
+      ['research-lab:correct-inputs', scope, 'campaign', correction], ['research-lab:history', scope, 'campaign', 'older'], ['research-lab:artifact', scope, 'campaign', 'a'.repeat(64)],
+      ['research-lab:protocol', scope, 'planning-v0.5'], ['research-lab:export', scope, 'campaign'], ['research-lab:reconcile-dependencies', scope, 'campaign']
+    ])
+    expect(api).not.toHaveProperty('fetch')
+  })
+
+  it('forwards Idea Lab operations with the displayed server scope and no arbitrary renderer route', async () => {
+    const scope = { profileId: 'isolated', profileGeneration: 3, serverIdentity: 'isolated-server' }
+    const create = { idempotency_key: 'create', brief: { goal: 'Study a gap', hypothesis: '', constraints: '', sources: [] } }
+    const run = { idempotency_key: 'run', expected_revision: 1 }
+    const decision = { expected_revision: 4, kind: 'defer' as const, selected_id: null, feedback: 'Need evidence' }
+    const followup = { expected_revision: 5, idempotency_key: 'next', mode: 'research' as const, feedback: 'Read methods', answers: [{ question_id: 'q', answer: 'A' }] }
+    const api = electronHarness.exposed!.ideaLab!
+    await api.list(scope); await api.get(scope, 'idea'); await api.history(scope, 'idea')
+    await api.create(scope, create); await api.generate(scope, 'idea', run)
+    await api.cancel(scope, 'idea', { expected_revision: 2 }); await api.decision(scope, 'idea', decision); await api.followup(scope, 'idea', followup); await api.activities(scope, 'idea', 12); await api.paper(scope, 'idea', 'source', 'a'.repeat(64))
+    expect(electronHarness.invoke.mock.calls).toEqual([
+      ['idea-lab:list', scope], ['idea-lab:get', scope, 'idea'], ['idea-lab:history', scope, 'idea'],
+      ['idea-lab:create', scope, create], ['idea-lab:generate', scope, 'idea', run],
+      ['idea-lab:cancel', scope, 'idea', { expected_revision: 2 }], ['idea-lab:decision', scope, 'idea', decision], ['idea-lab:followup', scope, 'idea', followup], ['idea-lab:activities', scope, 'idea', 12], ['idea-lab:paper', scope, 'idea', 'source', 'a'.repeat(64)]
+    ])
+  })
 
   it('exposes Codex account status without shared-login mutation', () => {
     expect(electronHarness.exposed?.codex.auth).toBeTypeOf('function')
