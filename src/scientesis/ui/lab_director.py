@@ -34,7 +34,7 @@ def render_lab_director_section(repository, project_id: str, project_root: Path)
     try:
         settings = ElevenLabsSettings.from_environment()
     except ValueError as error:
-        st.caption(f"Audio is optional. {error}")
+        st.caption(f"Audio is optional. {error} Manage the token, voice, model, and endpoint in Settings.")
     consent = st.checkbox(
         "Send this reviewed text to ElevenLabs to generate audio; provider usage charges may apply.",
         key=f"lab_director_audio_consent_{summary['fingerprint']}",

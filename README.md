@@ -25,49 +25,35 @@ Run the tests with:
 python -m pytest
 ```
 
+## Connections & API settings
+
+Open the **Settings** tab inside Scientesis to manage LLM, Firecrawl, Moss, and ElevenLabs connections. You can change tokens, endpoints, models, voice IDs, project IDs, and index names without restarting the app or editing terminal variables. Moss's endpoint is managed by its SDK; the other services support configurable endpoints.
+
+For a new token, choose **Replace**, enter it in the password field, then save that service's settings. **Keep current** with a blank field preserves the existing token. **Disable** clears the effective token and blocks environment fallback. **Use environment** removes the local token override; **Restore environment/defaults** removes all local overrides for that service. Existing tokens are never prefilled or displayed.
+
+Changes apply to new requests immediately and persist across app restarts in `data/integration-settings.json`. Saved values override the existing environment variables. The file is excluded from Git and saved with owner-only permissions on POSIX systems. It is **not encrypted**. Settings are installation-wide, not personal user accounts: keep the dashboard private or behind trusted access controls. Only use endpoints you trust to receive the service's token and request content. Remote endpoints require HTTPS; loopback HTTP is allowed. Saving settings makes no provider calls and never changes experiment approvals.
+
 ## Optional external retrieval
 
-Evidence snapshots can be created locally without credentials. Firecrawl public-page capture works without a key for initial access; optionally set `FIRECRAWL_API_KEY` in the same terminal before launching Streamlit for higher limits.
+Evidence snapshots can be created locally without credentials. Firecrawl public-page capture works without a key for initial access; optionally add a token in **Settings → Firecrawl** for higher limits. The default scrape endpoint is `https://api.firecrawl.dev/v2/scrape`.
 
-Moss semantic retrieval is optional. Install its extra and set credentials in the shell session where Streamlit will run:
+Moss semantic retrieval is optional. If its SDK is not installed, install the extra once:
 
 ```bash
 python -m pip install -e '.[retrieval]'
-export MOSS_PROJECT_ID='your-project-id'
-export MOSS_PROJECT_KEY='your-project-key'
-python -m streamlit run app.py
 ```
 
-`MOSS_INDEX_NAME` is optional (default `scientesis-research`). Moss sync and search send approved research context or search queries to Moss's cloud; raw uploaded datasets are excluded. The app sends nothing to Moss until you click **Sync** or **Search**. Keep keys out of source files, `.env` files tracked by Git, and commits. See the [Moss quickstart](https://docs.moss.dev/docs/start/quickstart) for obtaining project credentials.
+Then enter the project ID and project API token in **Settings → Moss retrieval**. The index name defaults to `scientesis-research`. Existing `MOSS_PROJECT_ID`, `MOSS_PROJECT_KEY`, and `MOSS_INDEX_NAME` environment variables remain supported as fallbacks. Moss sync and search send approved research context or search queries to Moss's cloud; raw uploaded datasets are excluded. The app sends nothing to Moss until you click **Sync** or **Search**. Keep keys out of source files, `.env` files tracked by Git, and commits. See the [Moss quickstart](https://docs.moss.dev/docs/start/quickstart) for obtaining project credentials.
 
 ## Optional LLM-assisted synthesis
 
-Synthesis is optional and uses a single OpenAI-compatible Chat Completions endpoint with JSON mode. It adds no package dependency. Set these variables in the same shell session used to launch Streamlit:
-
-```bash
-export SCIENTESIS_LLM_API_KEY='your-provider-key'
-export SCIENTESIS_LLM_MODEL='your-chat-model'
-export SCIENTESIS_LLM_BASE_URL='https://api.openai.com/v1'
-python -m streamlit run app.py
-```
-
-`SCIENTESIS_LLM_BASE_URL` is optional for the default endpoint; for self-hosted providers, use HTTPS or a local loopback HTTP endpoint. The **LLM synthesis** tab sends only the active ResearchBrief and the records captured in the snapshot you select, and only after you click **Generate**. Uploaded datasets and unselected records are excluded. The model has no tools. Outputs that fail strict brief, configuration, seed, threshold, or citation checks are rejected. Saving creates an unapproved proposal and draft hypothesis; you must review the hypothesis and separately approve the exact proposal before any run can start. No API key is needed for the rest of the local app.
-
-On Windows PowerShell, set the same variables with `$env:SCIENTESIS_LLM_API_KEY = '...'` and `$env:SCIENTESIS_LLM_MODEL = '...'` in the launching terminal.
+Synthesis is optional and uses a single OpenAI-compatible Chat Completions endpoint with JSON mode. It adds no package dependency. Enter your API token, model name, and endpoint base URL in **Settings → LLM synthesis**. The default base URL is `https://api.openai.com/v1`; do not append `/chat/completions`. HTTPS and local loopback HTTP endpoints are supported. Existing `SCIENTESIS_LLM_API_KEY`, `SCIENTESIS_LLM_MODEL`, and `SCIENTESIS_LLM_BASE_URL` environment variables remain supported as fallbacks. The **LLM synthesis** tab sends only the active ResearchBrief and the records captured in the snapshot you select, and only after you click **Generate**. Uploaded datasets and unselected records are excluded. The model has no tools. Outputs that fail strict brief, configuration, seed, threshold, or citation checks are rejected. Saving creates an unapproved proposal and draft hypothesis; you must review the hypothesis and separately approve the exact proposal before any run can start. No API key is needed for the rest of the local app.
 
 ## Optional Lab Director audio
 
 The **Runs & critique** page builds a read-only text summary from completed-run metrics, the stored critic verdict, the separate scientist interpretation, and exact current proposal approvals. Text summaries require no key. Audio is generated only when you review the text, consent to sending it, and click **Hear lab summary**.
 
-For ElevenLabs playback, set credentials in the terminal used to launch the app:
-
-```bash
-export ELEVENLABS_API_KEY='your-elevenlabs-key'
-export ELEVENLABS_VOICE_ID='a-voice-id-your-account-can-use'
-python -m streamlit run app.py
-```
-
-`ELEVENLABS_MODEL_ID` is optional (default `eleven_multilingual_v2`). Obtain the key and a permitted voice ID from your ElevenLabs account. No SDK, additional download, or local audio configuration is required. Provider charges may apply. On PowerShell, use `$env:ELEVENLABS_API_KEY = '...'` and `$env:ELEVENLABS_VOICE_ID = '...'` in the launching terminal. On Zo, store these credentials in Settings → Advanced → Secrets instead of source files.
+For playback, enter your API token and a permitted voice ID in **Settings → ElevenLabs audio**. The model defaults to `eleven_multilingual_v2` and the endpoint base URL defaults to `https://api.elevenlabs.io/v1`. Obtain the key and a permitted voice ID from your ElevenLabs account. No SDK, additional download, or local audio configuration is required. Provider charges may apply. Existing `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID`, `ELEVENLABS_MODEL_ID`, and `ELEVENLABS_BASE_URL` environment variables remain supported as fallbacks. Zo Secrets can supply those environment defaults; no source-file edits are needed.
 
 The app saves the MP3, exact text, hashes, and captured-state manifest under `artifacts/audio/`, and records the artifact in the local audit trail. These files are excluded from Git. Old audio is labeled historical when the current research state differs. Narration never approves a proposal, starts training, or converts a critic verdict into a scientist's interpretation. See the [ElevenLabs API documentation](https://elevenlabs.io/docs/api-reference/text-to-speech/convert).
 
@@ -77,11 +63,11 @@ The app saves the MP3, exact text, hashes, and captured-state manifest under `ar
 - `file configs/research_brief.example.json` — bounded starter question, metrics, seed set, and permitted interventions.
 - `src/scientesis/domain/` — typed experiment configuration.
 - `src/scientesis/db/` — SQLite schema, persistence, approvals, and audit trail.
-- `src/scientesis/services/` — target/hypothesis, authorization, deterministic planning, schema-validated synthesis, dataset, decision, interpretation, evidence, critique validation, and grounded narration.
+- `src/scientesis/services/` — target/hypothesis, authorization, deterministic planning, schema-validated synthesis, dataset, decision, interpretation, evidence, critique validation, grounded narration, and local connection-settings storage.
 - `src/scientesis/adapters/` — isolated clients for optional Firecrawl, Moss, OpenAI-compatible LLM, and ElevenLabs services.
 - `src/scientesis/rl/` — observation-noise and actuator-limit wrappers plus the experiment runner.
-- `src/scientesis/ui/` — isolated research-target, deterministic planner, snapshot-grounded synthesis, dataset-intake, evidence-review/retrieval, decision-card, scientist-interpretation, and Lab Director screens.
-- `tests/` — focused tests for authorization, persistence, critique grouping, wrappers, data review, evidence capture, snapshots, retrieval, synthesis validation, decision scope, human interpretation, and mocked narration audio.
+- `src/scientesis/ui/` — isolated research-target, deterministic planner, snapshot-grounded synthesis, dataset-intake, evidence-review/retrieval, decision-card, scientist-interpretation, Lab Director, and connection Settings screens.
+- `tests/` — focused tests for authorization, persistence, critique grouping, wrappers, data review, evidence capture, snapshots, retrieval, synthesis validation, decision scope, human interpretation, mocked narration audio, and credential/settings UI flows.
 - `artifacts/` — checkpoints and run logs; generated files are excluded from version control.
 - `file docs/scientesis_design_spec.md` — the supplied design document, kept with the project.
 

@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import json
 import math
-import os
 import re
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
+
+from scientesis.services.integration_settings import get_settings, validate_endpoint
 
 MAX_TEXT_CHARS = 5000
 MAX_AUDIO_BYTES = 20 * 1024 * 1024
@@ -19,8 +20,10 @@ class ElevenLabsSettings:
     voice_id: str
     model_id: str = "eleven_multilingual_v2"
     timeout_seconds: int = 60
+    base_url: str = "https://api.elevenlabs.io/v1"
 
     def __post_init__(self):
+        validate_endpoint(self.base_url)
         if not isinstance(self.api_key, str) or not self.api_key.strip() or len(self.api_key) > 4096 or any(character in self.api_key for character in "\r\n"):
             raise ValueError("Set a valid ELEVENLABS_API_KEY to enable narration audio.")
         for name, value in (("ELEVENLABS_VOICE_ID", self.voice_id), ("ELEVENLABS_MODEL_ID", self.model_id)):
@@ -31,10 +34,12 @@ class ElevenLabsSettings:
 
     @classmethod
     def from_environment(cls) -> "ElevenLabsSettings":
+        values = get_settings(("ELEVENLABS_API_KEY", "ELEVENLABS_VOICE_ID", "ELEVENLABS_MODEL_ID", "ELEVENLABS_BASE_URL"))
         return cls(
-            api_key=os.environ.get("ELEVENLABS_API_KEY", "").strip(),
-            voice_id=os.environ.get("ELEVENLABS_VOICE_ID", "").strip(),
-            model_id=os.environ.get("ELEVENLABS_MODEL_ID", "eleven_multilingual_v2").strip(),
+            api_key=values["ELEVENLABS_API_KEY"],
+            voice_id=values["ELEVENLABS_VOICE_ID"],
+            model_id=values["ELEVENLABS_MODEL_ID"],
+            base_url=values["ELEVENLABS_BASE_URL"],
         )
 
 
@@ -46,7 +51,7 @@ class ElevenLabsClient:
         if not isinstance(text, str) or not text.strip() or len(text) > MAX_TEXT_CHARS:
             raise ValueError(f"Narration must contain 1–{MAX_TEXT_CHARS} characters.")
         request = urllib.request.Request(
-            f"https://api.elevenlabs.io/v1/text-to-speech/{self.settings.voice_id}?output_format={OUTPUT_FORMAT}",
+            f"{validate_endpoint(self.settings.base_url)}/text-to-speech/{self.settings.voice_id}?output_format={OUTPUT_FORMAT}",
             data=json.dumps({"text": text, "model_id": self.settings.model_id}, allow_nan=False).encode("utf-8"),
             headers={"xi-api-key": self.settings.api_key, "Content-Type": "application/json", "Accept": "audio/mpeg"},
             method="POST",

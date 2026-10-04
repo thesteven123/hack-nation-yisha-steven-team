@@ -7,3 +7,4 @@
 - Treat actuator saturation as a simulation proxy, never as physical-robot safety evidence. Keep interpretations human-owned.
 - Optional external services belong in isolated adapters. Never commit API keys, local databases, model checkpoints, or generated run artifacts.
 - Read `docs/scientesis_design_spec.md` for product requirements and `README.md` for the current implementation boundary and setup.
+- Connection settings use `services/integration_settings.py` and the in-app Settings tab. Read saved overrides with environment fallback; never mutate process environment variables. `data/integration-settings.json` is private, unencrypted local storage excluded from Git; do not put tokens in the research database or audit trail.

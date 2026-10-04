@@ -45,7 +45,7 @@ def test_client_sends_json_only_without_tools_or_echoing_the_key(monkeypatch):
         captured["timeout"] = timeout
         return FakeResponse(body)
 
-    monkeypatch.setattr("scientesis.adapters.llm.urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("scientesis.adapters.llm.open_without_redirects", fake_urlopen)
     result = OpenAICompatibleClient(settings).complete_json("system", "selected evidence")
 
     assert result == expected
@@ -70,7 +70,7 @@ def test_provider_errors_do_not_include_secret_or_response_body(monkeypatch):
     def fail_urlopen(_request, timeout):
         raise urllib.error.HTTPError("https://provider.example", 401, "Unauthorized", {}, io.BytesIO(b"leaked-provider-body"))
 
-    monkeypatch.setattr("scientesis.adapters.llm.urllib.request.urlopen", fail_urlopen)
+    monkeypatch.setattr("scientesis.adapters.llm.open_without_redirects", fail_urlopen)
     with pytest.raises(RuntimeError) as error:
         OpenAICompatibleClient(LLMSettings(secret, "model")).complete_json("system", "user")
     assert secret not in str(error.value)

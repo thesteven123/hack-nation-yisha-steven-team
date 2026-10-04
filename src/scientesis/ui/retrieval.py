@@ -12,6 +12,7 @@ from scientesis.services.evidence_snapshots import build_moss_documents, snapsho
 def render_retrieval_panel(repository, project_id: str, project_root: str | Path) -> None:
     st.divider()
     st.subheader("Evidence snapshots and Moss retrieval")
+    st.caption("Manage Moss project credentials and the index name in the Settings tab.")
     st.caption(
         "Snapshots preserve the exact selected source, experiment, and critic-report IDs together with the active ResearchBrief version. "
         "Snapshots are append-only; creating one does not authorize an experiment or change a claim."

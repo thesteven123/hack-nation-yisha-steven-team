@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import ipaddress
 import json
-import os
 import socket
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qsl, urlsplit, urlunsplit
-from urllib.request import Request, urlopen
+from urllib.request import Request
+
+from scientesis.adapters.http import open_without_redirects
+from scientesis.services.integration_settings import get_settings, validate_endpoint
 
 API_URL = "https://api.firecrawl.dev/v2/scrape"
 MAX_RESPONSE_BYTES = 8_000_000
@@ -77,12 +79,14 @@ def validate_public_url(value: str) -> str:
 
 
 class FirecrawlClient:
-    def __init__(self, api_key: str | None = None, timeout: int = 45, opener=None):
+    def __init__(self, api_key: str | None = None, timeout: int = 45, opener=None, endpoint: str | None = None):
         if not isinstance(timeout, int) or timeout < 1 or timeout > 120:
             raise ValueError("Timeout must be between 1 and 120 seconds.")
-        self.api_key = api_key if api_key is not None else os.environ.get("FIRECRAWL_API_KEY", "")
+        values = get_settings(("FIRECRAWL_API_KEY", "FIRECRAWL_API_URL"))
+        self.api_key = api_key if api_key is not None else values["FIRECRAWL_API_KEY"]
+        self.endpoint = validate_endpoint(endpoint if endpoint is not None else values["FIRECRAWL_API_URL"])
         self.timeout = timeout
-        self.opener = opener or urlopen
+        self.opener = opener or open_without_redirects
 
     def scrape(self, source_url: str) -> ScrapedPage:
         source_url = validate_public_url(source_url)
@@ -90,7 +94,7 @@ class FirecrawlClient:
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
         request = Request(
-            API_URL,
+            self.endpoint,
             data=json.dumps({"url": source_url, "formats": ["markdown"], "onlyMainContent": True, "maxAge": 0}).encode("utf-8"),
             headers=headers,
             method="POST",
@@ -100,10 +104,9 @@ class FirecrawlClient:
                 raw = response.read(MAX_RESPONSE_BYTES + 1)
                 status = getattr(response, "status", 200)
         except HTTPError as error:
-            detail = error.read(2000).decode("utf-8", errors="replace")
-            raise FirecrawlError(f"Firecrawl returned HTTP {error.code}: {detail[:500]}") from error
-        except (URLError, TimeoutError, OSError) as error:
-            raise FirecrawlError(f"Could not reach Firecrawl: {error}") from error
+            raise FirecrawlError(f"Firecrawl returned HTTP {error.code}; check credentials and provider limits.") from None
+        except (URLError, TimeoutError, OSError):
+            raise FirecrawlError("Could not reach Firecrawl; check the endpoint and network availability.") from None
         if len(raw) > MAX_RESPONSE_BYTES:
             raise FirecrawlError("Firecrawl response exceeded the 8 MB safety limit.")
         try:
@@ -111,8 +114,7 @@ class FirecrawlClient:
         except (json.JSONDecodeError, UnicodeDecodeError) as error:
             raise FirecrawlError("Firecrawl returned an invalid JSON response.") from error
         if status < 200 or status >= 300 or not isinstance(payload, dict) or payload.get("success") is False:
-            message = payload.get("error") if isinstance(payload, dict) else None
-            raise FirecrawlError(str(message or f"Firecrawl returned HTTP {status}.")[:500])
+            raise FirecrawlError(f"Firecrawl returned an unsuccessful response (HTTP {status}); check the source and provider status.")
         data = payload.get("data")
         if not isinstance(data, dict):
             raise FirecrawlError("Firecrawl response did not contain page data.")

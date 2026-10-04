@@ -19,6 +19,7 @@ from scientesis.ui.lab_director import render_lab_director_section
 from scientesis.ui.planner import render_planner_tab
 from scientesis.ui.research_targets import render_research_target_tab
 from scientesis.ui.synthesis import render_synthesis_tab
+from scientesis.ui.settings import render_settings_tab
 
 
 st.set_page_config(page_title="Scientesis", page_icon="🔬", layout="wide")
@@ -32,9 +33,12 @@ ARTIFACTS_DIR = PROJECT_ROOT / "artifacts"
 st.title("Scientesis")
 st.caption("Human-guided research lab · reproducible RL experiments · simulation only")
 
-overview_tab, planner_tab, synthesis_tab, target_tab, proposal_tab, results_tab, dataset_tab, evidence_tab, decision_tab, notebook_tab = st.tabs(
-    ["Research overview", "Planner", "LLM synthesis", "Research target", "Propose & approve", "Runs & critique", "Data intake", "Evidence", "Decision center", "Lab notebook"]
+overview_tab, planner_tab, synthesis_tab, target_tab, proposal_tab, results_tab, dataset_tab, evidence_tab, decision_tab, notebook_tab, settings_tab = st.tabs(
+    ["Research overview", "Planner", "LLM synthesis", "Research target", "Propose & approve", "Runs & critique", "Data intake", "Evidence", "Decision center", "Lab notebook", "Settings"]
 )
+
+with settings_tab:
+    render_settings_tab()
 
 with overview_tab:
     st.subheader(brief["project_title"])

@@ -3,9 +3,10 @@ from __future__ import annotations
 import asyncio
 import importlib
 import math
-import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+from scientesis.services.integration_settings import SettingsError, get_settings
 
 
 class MossConfigurationError(RuntimeError):
@@ -23,14 +24,18 @@ class MossOperationError(RuntimeError):
 @dataclass(frozen=True)
 class MossSettings:
     project_id: str
-    project_key: str
+    project_key: str = field(repr=False)
     index_name: str = "scientesis-research"
 
     @classmethod
     def from_environment(cls) -> "MossSettings":
-        project_id = os.environ.get("MOSS_PROJECT_ID", "").strip()
-        project_key = os.environ.get("MOSS_PROJECT_KEY", "")
-        index_name = os.environ.get("MOSS_INDEX_NAME", "scientesis-research").strip()
+        try:
+            values = get_settings(("MOSS_PROJECT_ID", "MOSS_PROJECT_KEY", "MOSS_INDEX_NAME"))
+            project_id = values["MOSS_PROJECT_ID"]
+            project_key = values["MOSS_PROJECT_KEY"]
+            index_name = values["MOSS_INDEX_NAME"]
+        except SettingsError as error:
+            raise MossConfigurationError(str(error)) from None
         missing = [name for name, value in (("MOSS_PROJECT_ID", project_id), ("MOSS_PROJECT_KEY", project_key)) if not value]
         if missing:
             raise MossConfigurationError("Set " + " and ".join(missing) + " before using Moss retrieval.")

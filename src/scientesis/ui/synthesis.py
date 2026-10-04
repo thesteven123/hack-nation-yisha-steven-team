@@ -18,7 +18,7 @@ def render_synthesis_tab(repository, project_id: str, project_root) -> None:
         settings = LLMSettings.from_environment()
     except ValueError as error:
         st.warning(
-            f"Synthesis is not configured: {error} Add the credentials to the environment used to start Streamlit. "
+            f"Synthesis is not configured: {error} Add or change credentials and endpoints in the Settings tab. "
             "No provider call will happen until you explicitly click Generate."
         )
 
