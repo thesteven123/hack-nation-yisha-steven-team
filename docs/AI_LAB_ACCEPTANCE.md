@@ -1,40 +1,58 @@
-# AI Lab 可试用交付与验收范围
+# AI Lab trial delivery and acceptance scope
 
-记录时间：2026-10-04，America/Los_Angeles。完整 v0.5 状态为 **PARTIAL**。
-代码位于独立分支 `codex/agentsdock-ai-lab-20261004`，保留 AgentsDock 上游历史，未合并队伍其他系统的代码。
+Recorded on 2026-10-04, America/Los_Angeles. Full v0.5 remains **PARTIAL**.
+The source is on `codex/agentsdock-ai-lab-20261004`, retaining AgentsDock's upstream history without merging the team's other agent system.
 
-## 可以试用的流程
+## Workflows you can try
 
-按 [快速上手](AI_LAB_QUICKSTART.md) 启动。已有本地环境可双击仓库根目录的 `Start-AILab.cmd`；首次克隆须先准备指南中的构建与 WSL 环境。
+Follow the [quick start](AI_LAB_QUICKSTART.md). On a prepared local environment, run `Start-AILab.cmd` from the repository root. A fresh clone requires the documented Electron build and WSL server preparation first.
 
-1. **Idea 组**：输入目标 → Literature Agent 检索、读取来源 → Idea Agent 比较方向 → 审阅任务提出缺口或问题 → 人工选择、修订或继续查阅。主要页面先展示查阅文献、提取信息和下一步，详细日志折叠。
-2. **研究工作台**：导入冻结证据或输入配对数值，保存目标、方法与额度，明确选择动作后执行。当前动作包括精确引文定位、来源上下文检查和已接入的配对数值分析。
-3. **研究小问题**：显式开启至多三个分支。各分支有自己的问题、回答、状态和冻结依赖；共享整个研究的预算。保存回答或选择动作不会自动执行。
-4. **研究成员**：明确请求 Planner、Analyst 或 Reviewer，模型输出保留来源与使用回执；它们不能改写机器观测或替人批准执行。
-5. **结果与记录**：检查旧结果、假设修订、输入更正、依赖失效、暂停、继续与结束状态。导出保留记录；保存原文件与完整服务备份是不同操作。
+1. **Idea Lab:** enter a goal, let Literature Agent discover and read sources, compare Idea Agent's directions, inspect the independent review, then explicitly choose, revise, or request more reading. The main view prioritizes papers, findings and next steps; technical activity stays collapsed.
+2. **Research workspace:** import frozen evidence or supply paired numerical inputs, save the goal, method and budget, explicitly choose an action, and then run it. Available actions include exact quotation location, supplied source context checks and the integrated paired-number analyses.
+3. **Smaller research questions:** explicitly enable up to three branches. Each has its own question, answer, state and frozen dependencies, sharing the campaign budget. Saving an answer or choosing an action does not execute it.
+4. **Research members:** explicitly request Planner, Analyst or Reviewer. Their model interpretations retain evidence links and usage receipts; they cannot rewrite machine observations or approve execution for you.
+5. **Results and records:** inspect old results, hypothesis revisions, corrected inputs, dependency invalidation, pause, continue and end states. Exported records, saved original files and a full service backup are different artifacts.
+6. **English and Trash:** the isolated competition profile opens in English. New model prose is requested in English while saved research, source titles and exact quotations retain their language. Each Idea or campaign has a trash icon and confirmation dialog. Trash excludes it from active work; Restore returns it without deleting evidence or results. Active generations/native roles must stop first.
 
-## 已完成检查
+## Frozen delivery checks before the English/Trash follow-up
 
-| 检查 | 实际结果 | 证明范围 |
+These are historical receipts for the preceding candidate, not a claim that every workflow has been retested after each later change.
+
+| Check | Observed result | What it establishes |
 | --- | --- | --- |
-| 整合后端测试 | 最后补丁整合后 390 PASS | 隔离存储、Idea/Research、模型包、分支与来源安全边界；包含合成服务 |
-| 发布清单检查 | 10 PASS，shell 语法与新增模块导入通过 | 源码发布内容；部分方法与后端测试重叠，不能简单相加 |
-| 原始独立 F501/F502/F503 回归 | 原测试未改，3/3 PASS | 历史来源不升级、备份引用完整、来源 GET 不触发恢复 |
-| 客户端检查 | 冻结工作副本的相关测试通过；实际整合源码 typecheck、build、compiled-output 校验通过 | 来源身份/保存回调与分支 UI；不替代每条真实 UI 验收 |
-| 三分支原生界面 | A 等待必答时 B 可运行；A 回答不执行；A 完成后 C 使用冻结依赖；共三轮 QC 通过 | 从实际开发窗口到服务的有限流程；179 项记录/CAS 核对通过 |
-| B 原生 Analyst | 一次完成，报告 6116 tokens | 模型输出与 B 的有效范围绑定；未验证执行期间发生另一个分支修改 |
-| 启动入口 | 实际重复启动识别已有开发窗口和服务 | 本机已准备环境；未执行安装版升级或服务替换 |
-| 最后补丁的原件界面 | 精确版本读取、原生 Save As 和取消均通过；188707 字节与归档/API 完全一致 | HTML 原件；不代表模型已读全文；不同下载或缺失原件仍拒绝升级 |
-| 最后补丁的开发服务重启 | 7 个 Idea、7 个研究、7 个模型任务的已保存负载全部不变 | 重启前无运行任务；安装版未重启；启动脚本的 WSL 参数引用已修正并实际启动成功 |
+| Integrated backend suite | 390 PASS after the final source patch | Isolated Idea/Research storage, model packets, branches and source authority boundaries; includes synthetic services |
+| Release manifest checks | 10 PASS; shell syntax and new module imports passed | Source release contents; some methods overlap backend tests and must not be added as independent counts |
+| Original independent F501/F502/F503 regressions | Original tests unchanged; 3/3 PASS | No historical source upgrade, complete backup references, source GET does not perform recovery |
+| Client checks | Relevant frozen-copy tests passed; integrated source typecheck, build and compiled-output verification passed | Source identity, save callbacks and branch UI; does not replace every native user journey |
+| Native three-branch workflow | B ran while A awaited a required answer; A's answer did not execute; C used frozen dependencies after A; three rounds passed QC | A bounded real development-window/server flow; 179 record/CAS assertions passed |
+| Native branch-B Analyst | Completed once; reported 6,116 tokens | Interpretation bound to B's valid scope; concurrent branch changes during execution were not verified |
+| Launch entry | Repeated launch recognized the running development app/service | Prepared local environment; installed app/service were not replaced or upgraded |
+| Exact original-file UI after the final patch | Exact-version reading, native Save As and Cancel passed; 188,707 bytes matched the archive/API | Retained HTML original; does not prove full model reading; distinct downloads and missing originals still cannot be upgraded |
+| Idle development-service restart | Saved payloads for all 7 Ideas, 7 campaigns and 7 model jobs remained identical | No running tasks before restart; installed service was not restarted; corrected WSL quoting was exercised |
 
-三个分支使用相同虚构输入和来源检查，不能称为独立重复实验或科研发现。此前候选的真实公开文献阅读、HTML 原件保存/取消与完整七库备份恢复记录作为历史证据保留，不移作新候选验收。
+The three branches used the same synthetic input and source checks. They are not independent scientific replications or discoveries. Earlier public-literature reading, HTML save/cancel and seven-store backup/restore receipts remain historical evidence; they are not reassigned as acceptance for a newer candidate.
 
-## 未完成或仍有限制
+## English/Trash follow-up checks
 
-- **E4 尚未完成**：实际所选原生模型的调用前 tokenizer 准入、按需读取必要证据的 native resolver，以及对应备份证明尚未整合。事后 token usage 与字节预算不能替代该要求。
-- **独立复审范围**：第六轮冻结候选 5 确认原件身份歧义 F601。最后补丁仅在明确生成轮次且完整下载回执、URI 和核心来源身份全部相同时识别同一下载的缓存附加信息；现场读取、保存与取消已重测通过。原候选失败保留，最后补丁的整轮独立复审尚未完成。真正不同下载身份的历史记录仍需精确描述选择入口，不自动选择最新下载。
-- 通用外部科学实验执行、未知结果/计费协调、任意行动组合与通用分析缓存未完成。
-- 全文可达性和实际模型阅读范围有别；摘要或部分材料明确保留缺口。历史原件缺失时不得以后下载内容冒充。
-- 未开展人类信息负担、研究质量、跨任务泛化、独立复现或 10 倍效率提升的对照验证。
+| Check | Observed result | Boundary |
+| --- | --- | --- |
+| Focused client suite | 81 PASS across seven affected files | Confirmation/cancel, list removal, restore, visible errors, server ownership, strict response identities, native transport allowlist, locale and language behavior; mocked UI responses are labeled as such |
+| Focused backend suite | 113 PASS | Real isolated stores/routes: trash and restore, preserved records/exports, revision conflicts, auth, busy roles, separate pagination, old creation/run replay, deleted-campaign model admission, dependency and generation regressions |
+| TypeScript and production build | Passed; compiled Electron entry verified | The build used for the native follow-up window |
+| Native English presentation | Both workspaces and app menus displayed English | Existing objectives and results were preserved in their original language |
+| Native Planner with a Chinese synthetic objective | Completed once; English interpretation; exact Chinese quotation retained; reported 4,607 tokens | Real model call; no scientific action or human selection was performed |
+| Native confirmation and Cancel | Correct fixture title displayed; Cancel preserved its revision and active state | Final native **Move to Trash** click remains pending action-time confirmation |
+| Native campaign Restore | A synthetic campaign seeded into Trash through the authenticated API was restored through the actual app; Trash emptied and the service returned revision 3 with no deletion marker | Real client/server restore; does not establish a native deletion click |
+| Final idle development restart | All 24 pre-restart payloads and all 21 original payloads were identical afterward | No active jobs before restart; installed executable hash, four process IDs and start times were unchanged |
 
-详细运行数据、原始失败和独立校验报告保存在本地验收工作区，未上传用户研究数据、认证信息或模型会话。
+Detailed private receipts remain in the local acceptance workspace. Synthetic fixture deletion through the authenticated development API establishes that boundary only; it does not establish a final native deletion click.
+
+## Incomplete or limited
+
+- **E4 is incomplete:** selected-model tokenizer admission before dispatch, a native resolver for reading necessary evidence on demand, and the corresponding backup proof are not integrated. Reported usage after a call and byte budgets do not satisfy this requirement.
+- **Independent review:** round-six frozen candidate 5 exposed exact-original identity ambiguity F601. The final patch recognizes cache metadata only when an explicit generation, complete retained fetch receipt, URI and core source identity all match the same download. Native read/save/cancel was retested, but a complete independent post-patch review is pending. Different historical downloads still require an exact selection path; the service does not silently choose the latest download.
+- General external scientific execution, unknown outcome/billing reconciliation, arbitrary action combinations and a general analysis cache are incomplete.
+- Full-original availability and model reading coverage are distinct. Abstracts and partial materials retain explicit gaps. A later download cannot stand in for a missing historical original.
+- Human information burden, research quality, cross-task generalization, independent scientific reproduction and a 10x efficiency improvement have not been validated in controlled comparisons.
+
+No user research data, authentication material or model conversations are included in the public source delivery.

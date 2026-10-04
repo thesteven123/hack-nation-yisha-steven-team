@@ -215,7 +215,7 @@ def create_research_lab_router(*, storage_root, authorize, idea_root=None, depen
             return await asyncio.shield(task)
         except (LabError, IdeaError) as exc:
             status = {"not_found": 404, "stale_revision": 409, "stale_origin": 409, "revision_conflict": 409,
-                      "environment_changed": 409, "invalid_state": 409,
+                      "environment_changed": 409, "invalid_state": 409, "deleted": 409,
                       "branch_not_found": 404, "branch_required": 409, "branch_scope_changed": 409,
                       "branch_revision_conflict": 409, "branch_blocked": 409,
                       "dependency_stale": 409, "dependency_pending": 409, "dependency_limit": 413,
@@ -305,6 +305,23 @@ def create_research_lab_router(*, storage_root, authorize, idea_root=None, depen
         authorize(request)
         value = await body(request)
         return await campaign_reply(lambda: changed(lambda: store().create(value, resolve_origin=lambda payload: imports().resolve(payload))))
+
+    @router.get("/trash")
+    async def trash_listing(request: Request, before: str | None = None, limit: int = 50):
+        authorize(request)
+        return await reply(lambda: inspector().list(before=before, limit=limit, trashed=True))
+
+    @router.post("/{campaign_id}/trash")
+    async def move_to_trash(campaign_id: str, request: Request):
+        authorize(request)
+        value = await body(request, 2048)
+        return await campaign_reply(lambda: store().set_deleted(campaign_id, value, True))
+
+    @router.post("/{campaign_id}/restore")
+    async def restore(campaign_id: str, request: Request):
+        authorize(request)
+        value = await body(request, 2048)
+        return await campaign_reply(lambda: store().set_deleted(campaign_id, value, False))
 
     @router.get("/{campaign_id}")
     async def get(campaign_id: str, request: Request):

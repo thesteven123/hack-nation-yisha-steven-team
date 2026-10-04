@@ -65,6 +65,12 @@ class IdeaController:
         admission = asyncio.create_task(self._start(session_id, request))
         return await _await_owned(admission)
 
+    async def set_deleted(self, session_id, request, deleted):
+        async with self.lock:
+            if session_id in self.jobs and not self.jobs[session_id].done():
+                raise IdeaError("busy", "Wait for this generation to stop before deleting the research.")
+            return await _storage(self.store.set_deleted, session_id, request, deleted)
+
     async def _start(self, session_id, request):
         async with self.lock:
             if self.closed:
@@ -409,7 +415,7 @@ def create_router(*, storage_root, authorize, generate, discover=None, retrieve=
             status = {"not_found": 404, "stale_revision": 409, "idempotency_conflict": 409,
                       "invalid_state": 409, "busy": 409, "unsupported_schema": 409,
                       "ambiguous_source": 409, "source_packet_limit": 413,
-                      "storage_error": 503}.get(exc.code, 400)
+                      "deleted": 409, "storage_error": 503}.get(exc.code, 400)
             raise HTTPException(status, {"code": exc.code, "message": exc.message}, headers=HEADERS) from None
 
     @router.get("")
@@ -425,6 +431,29 @@ def create_router(*, storage_root, authorize, generate, discover=None, retrieve=
         value = await body(request)
         async def operation():
             return await _storage((await service()).store.create, value)
+        return await response(operation)
+
+    @router.get("/trash")
+    async def trash_listing(request: Request):
+        authorize(request)
+        async def operation():
+            return await _storage((await service()).store.list, True)
+        return await response(operation)
+
+    @router.post("/{session_id}/trash")
+    async def move_to_trash(session_id: str, request: Request):
+        authorize(request)
+        value = await body(request, 2048)
+        async def operation():
+            return await (await service()).set_deleted(session_id, value, True)
+        return await response(operation)
+
+    @router.post("/{session_id}/restore")
+    async def restore(session_id: str, request: Request):
+        authorize(request)
+        value = await body(request, 2048)
+        async def operation():
+            return await (await service()).set_deleted(session_id, value, False)
         return await response(operation)
 
     @router.get("/{session_id}")

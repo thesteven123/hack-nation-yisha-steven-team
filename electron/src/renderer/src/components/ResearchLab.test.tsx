@@ -12,11 +12,13 @@ const scope = { profileId: 'test', profileGeneration: 1, serverIdentity: 'test-s
 let api: ResearchLabAPI, campaign: LabCampaign
 beforeEach(() => {
   localStorage.clear(); setLocale('en'); campaign = labFixture()
-  api = { reconcileDependencies: vi.fn().mockImplementation(async () => campaign), protocol: vi.fn().mockResolvedValue(labProtocolFixture()), export: vi.fn().mockResolvedValue({ path: "research-campaign.json", campaign_id: "campaign-one", bundle_sha256: "c".repeat(64), bytes: 1024 }), list: vi.fn().mockResolvedValue({ items: [], has_more: false }), capabilities: vi.fn().mockResolvedValue({ schema_version: 1, adapters: [campaign.adapter], execution: {} }), get: vi.fn().mockImplementation(async () => campaign), ideaSeed: vi.fn().mockResolvedValue(labSeedFixture()), create: vi.fn().mockResolvedValue(campaign), decision: vi.fn().mockImplementation(async (_scope, _id, input) => { campaign = { ...campaign, revision: campaign.revision + 1, status: input.kind === 'stop' ? 'stopped' : input.kind === 'defer' ? 'needs_input' : 'planned', stop_reason: input.kind === 'defer' ? 'human_deferred' : null, current_plan: input.kind === 'select' ? { ...campaign.current_plan!, selected_action_id: input.selected_action_id, selection_origin: 'human' } : campaign.current_plan }; return campaign }), run: vi.fn().mockImplementation(async () => { const round = labRoundFixture(); campaign = { ...campaign, revision: campaign.revision + 1, status: 'awaiting_next', rounds: [round], review: round.review }; return campaign }), advance: vi.fn().mockImplementation(async () => { campaign = { ...campaign, revision: campaign.revision + 1, status: 'planned', current_plan: { ...campaign.current_plan!, round: 2, selection_origin: 'policy' } }; return campaign }), correctInputs: vi.fn().mockImplementation(async () => ({ ...campaign, revision: campaign.revision + 1, status: 'planned' })), history: vi.fn().mockResolvedValue({ items: [], has_more: false }), artifact: vi.fn().mockResolvedValue({ sha256: 'a'.repeat(64), media_type: 'application/json', content: labSeedFixture().inputs }) }
+  api = { trash: vi.fn(), restore: vi.fn(), reconcileDependencies: vi.fn().mockImplementation(async () => campaign), protocol: vi.fn().mockResolvedValue(labProtocolFixture()), export: vi.fn().mockResolvedValue({ path: "research-campaign.json", campaign_id: "campaign-one", bundle_sha256: "c".repeat(64), bytes: 1024 }), list: vi.fn().mockResolvedValue({ items: [], has_more: false }), capabilities: vi.fn().mockResolvedValue({ schema_version: 1, adapters: [campaign.adapter], execution: {} }), get: vi.fn().mockImplementation(async () => campaign), ideaSeed: vi.fn().mockResolvedValue(labSeedFixture()), create: vi.fn().mockResolvedValue(campaign), decision: vi.fn().mockImplementation(async (_scope, _id, input) => { campaign = { ...campaign, revision: campaign.revision + 1, status: input.kind === 'stop' ? 'stopped' : input.kind === 'defer' ? 'needs_input' : 'planned', stop_reason: input.kind === 'defer' ? 'human_deferred' : null, current_plan: input.kind === 'select' ? { ...campaign.current_plan!, selected_action_id: input.selected_action_id, selection_origin: 'human' } : campaign.current_plan }; return campaign }), run: vi.fn().mockImplementation(async () => { const round = labRoundFixture(); campaign = { ...campaign, revision: campaign.revision + 1, status: 'awaiting_next', rounds: [round], review: round.review }; return campaign }), advance: vi.fn().mockImplementation(async () => { campaign = { ...campaign, revision: campaign.revision + 1, status: 'planned', current_plan: { ...campaign.current_plan!, round: 2, selection_origin: 'policy' } }; return campaign }), correctInputs: vi.fn().mockImplementation(async () => ({ ...campaign, revision: campaign.revision + 1, status: 'planned' })), history: vi.fn().mockResolvedValue({ items: [], has_more: false }), artifact: vi.fn().mockResolvedValue({ sha256: 'a'.repeat(64), media_type: 'application/json', content: labSeedFixture().inputs }) }
+  api.trash = vi.fn().mockResolvedValue({ ...campaign, revision: 2, deleted_at: '2026-10-04T13:00:00Z' })
+  api.restore = vi.fn().mockResolvedValue({ ...campaign, revision: 3, deleted_at: null })
   window.agentsDock = { researchLab: api } as AgentsDockAPI
 })
 afterEach(cleanup)
-const open = async () => { vi.mocked(api.list).mockResolvedValue({ items: [campaign], has_more: false }); render(<ResearchLab scope={scope} onClose={() => {}} />); fireEvent.click(await screen.findByRole('button', { name: /Does the supplied text include/ })); await screen.findByRole('button', { name: 'Run the selected frozen action' }); await waitFor(() => expect(screen.queryByText('Working on this request…')).not.toBeInTheDocument()) }
+const open = async () => { vi.mocked(api.list).mockResolvedValue({ items: [campaign], has_more: false }); render(<ResearchLab scope={scope} onClose={() => {}} />); fireEvent.click(await screen.findByRole('button', { name: /^Does the supplied text include/ })); await screen.findByRole('button', { name: 'Run the selected frozen action' }); await waitFor(() => expect(screen.queryByText('Working on this request…')).not.toBeInTheDocument()) }
 const fill = () => {
   fireEvent.change(screen.getByLabelText('Research question / goal'), { target: { value: 'Is the qualification present?' } })
   fireEvent.change(screen.getByLabelText('What would count as a useful result?'), { target: { value: 'Locate it and inspect context' } })
@@ -25,6 +27,38 @@ const fill = () => {
   fireEvent.change(screen.getByLabelText('Available source text'), { target: { value: 'Only these cases. Others untested.' } })
 }
 describe('Research workspace', () => {
+  it('confirms a deletion, closes the selected research and restores the same record', async () => {
+    let deleted = false
+    vi.mocked(api.list).mockImplementation(async (_scope, _before, trash) => ({ items: Boolean(trash) === deleted ? [deleted ? { ...campaign, revision: 2, deleted_at: '2026-10-04T13:00:00Z' } : campaign] : [], has_more: false }))
+    vi.mocked(api.trash).mockImplementation(async () => { deleted = true; return { ...campaign, revision: 2, deleted_at: '2026-10-04T13:00:00Z' } })
+    vi.mocked(api.restore).mockImplementation(async () => { deleted = false; return { ...campaign, revision: 3, deleted_at: null } })
+    render(<ResearchLab scope={scope} onClose={() => {}} />)
+    fireEvent.click(await screen.findByRole('button', { name: /^Does the supplied text include/ }))
+    await screen.findByRole('button', { name: 'Run the selected frozen action' })
+    fireEvent.click(screen.getByRole('button', { name: /^Delete research:/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(api.trash).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: /^Delete research:/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Move to Trash' }))
+    await waitFor(() => expect(screen.queryByRole('button', { name: /^Does the supplied text include/ })).not.toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: 'Run the selected frozen action' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Trash' }))
+    fireEvent.click(await screen.findByRole('button', { name: /^Restore research:/ }))
+    await screen.findByText('Trash is empty.')
+    fireEvent.click(screen.getByRole('button', { name: 'Active research' }))
+    expect(await screen.findByRole('button', { name: /^Does the supplied text include/ })).toBeInTheDocument()
+    expect(api.run).not.toHaveBeenCalled()
+  })
+  it('shows an active-role deletion failure without losing the selected research', async () => {
+    await open()
+    vi.mocked(api.trash).mockRejectedValue(new Error('Stop the active native role before deleting this research.'))
+    fireEvent.click(screen.getByRole('button', { name: /^Delete research:/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Move to Trash' }))
+    await screen.findAllByText('Stop the active native role before deleting this research.')
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(screen.getByRole('button', { name: 'Run the selected frozen action' })).toBeInTheDocument()
+  })
   it('reopens branches with their dedicated admission read and does not expose the unscoped run path', async () => {
     campaign.branch_set = branchSetFixture()
     api.branches = { get: vi.fn().mockImplementation(async () => campaign), enable: vi.fn(), plan: vi.fn(), answers: vi.fn(), decision: vi.fn(), control: vi.fn(), run: vi.fn().mockImplementation(async () => campaign) }
@@ -282,7 +316,7 @@ describe('Research workspace', () => {
     let resolve!: (value: LabCampaign) => void
     vi.mocked(api.list).mockResolvedValue({ items: [campaign], has_more: false }); vi.mocked(api.get).mockReturnValue(new Promise(r => { resolve = r }))
     const view = render(<ResearchLab scope={scope} onClose={() => {}} />)
-    fireEvent.click(await screen.findByRole('button', { name: /Does the supplied text include/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /^Does the supplied text include/ }))
     view.rerender(<ResearchLab scope={{ ...scope, serverIdentity: 'other-server' }} onClose={() => {}} />)
     await act(async () => resolve(campaign))
     expect(screen.queryByText('Round 1: frozen plan')).not.toBeInTheDocument()
@@ -290,7 +324,7 @@ describe('Research workspace', () => {
   it('loads frozen input on explicit correction and sends exact reason; retains old claims as invalidated', async () => {
     const round = labRoundFixture(); campaign = { ...campaign, status: 'awaiting_next', rounds: [round], review: round.review, claims: [{ id: 'claim-one', text: round.analysis.claim, status: 'needs_revalidation', source_support: 'supported', inference_validity: 'cannot_determine', conditions: [], input_artifact: 'a'.repeat(64), run_id: round.run.id }] }
     vi.mocked(api.list).mockResolvedValue({ items: [campaign], has_more: false })
-    render(<ResearchLab scope={scope} onClose={() => {}} />); fireEvent.click(await screen.findByRole('button', { name: /Does the supplied text include/ }))
+    render(<ResearchLab scope={scope} onClose={() => {}} />); fireEvent.click(await screen.findByRole('button', { name: /^Does the supplied text include/ }))
     await screen.findByText('The goal or inputs supporting this conclusion changed. It needs revalidation.')
     expect(api.artifact).not.toHaveBeenCalled()
     fireEvent.click(screen.getByText('Revise, correct inputs, or end')); fireEvent.click(screen.getByRole('button', { name: 'Correct source text or data' }))
@@ -315,7 +349,7 @@ describe('Research workspace', () => {
     const round = labRoundFixture(); round.qc.passed = false; round.analysis.source_support = 'cannot_determine'
     campaign = { ...campaign, status: 'needs_input', rounds: [round], review: { ...round.review, next_action: 'needs_input' } }
     vi.mocked(api.list).mockResolvedValue({ items: [campaign], has_more: false }); render(<ResearchLab scope={scope} onClose={() => {}} />)
-    fireEvent.click(await screen.findByRole('button', { name: /Does the supplied text include/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /^Does the supplied text include/ }))
     await screen.findByText('Quality checks failed. This result cannot support the research claim.')
     expect(screen.queryByRole('button', { name: 'Freeze the next plan' })).not.toBeInTheDocument()
     expect(screen.getByText('Technical records').closest('details')).not.toHaveAttribute('open')
@@ -326,9 +360,9 @@ describe('Research workspace', () => {
     vi.mocked(api.history).mockResolvedValueOnce({ items: [{ revision: 4, at: '', event: 'first', brief: campaign.brief, status: 'planned' }], has_more: true, next_cursor: 'older_revisions' }).mockResolvedValueOnce({ items: [{ revision: 4, at: '', event: 'first', brief: campaign.brief, status: 'planned' }, { revision: 2, at: '', event: 'older', brief: campaign.brief, status: 'planned' }], has_more: false })
     render(<ResearchLab scope={scope} onClose={() => {}} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Load more research' }))
-    await screen.findByRole('button', { name: /An older question/ }); expect(api.list).toHaveBeenLastCalledWith(scope, 'more_campaigns')
-    expect(screen.getAllByRole('button', { name: /Does the supplied text include/ })).toHaveLength(1)
-    fireEvent.click(screen.getByRole('button', { name: /Does the supplied text include/ }))
+    await screen.findByRole('button', { name: /^An older question/ }); expect(api.list).toHaveBeenLastCalledWith(scope, 'more_campaigns')
+    expect(screen.getAllByRole('button', { name: /^Does the supplied text include/ })).toHaveLength(1)
+    fireEvent.click(screen.getByRole('button', { name: /^Does the supplied text include/ }))
     await screen.findByRole('button', { name: 'Run the selected frozen action' }); expect(api.history).not.toHaveBeenCalled()
     fireEvent.click(screen.getByText('Earlier results and decisions')); fireEvent.click(screen.getByRole('button', { name: 'Load saved revision history' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Load earlier revisions' }))
@@ -356,7 +390,7 @@ describe('Research workspace', () => {
     const round = labRoundFixture(); round.observation = { kind: 'paired_summary', data: { pairs: 4, mean_difference: -2, descriptive_interval: [-3, -1], minimum_effect: 1, unit: 'points', criterion_result: 'upper_bound_below_threshold' }, coverage: { kind: 'supplied_pairs' } }; round.analysis.source_support = 'contradicted'; round.analysis.claim = 'The mean exceeds 1 points.'
     campaign = { ...campaign, status: 'awaiting_next', rounds: [round], review: round.review }
     vi.mocked(api.list).mockResolvedValue({ items: [campaign], has_more: false }); render(<ResearchLab scope={scope} onClose={() => {}} />)
-    fireEvent.click(await screen.findByRole('button', { name: /Does the supplied text include/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /^Does the supplied text include/ }))
     await screen.findByText("The descriptive interval's upper bound is below the frozen threshold.")
     expect(screen.getByText('Proposition being assessed:')).toBeInTheDocument()
     expect(screen.getByText('Contradicted under this rule')).toBeInTheDocument()

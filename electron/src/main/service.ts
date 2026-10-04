@@ -1852,7 +1852,9 @@ export class AppService {
     this.assertCurrentScope(scope)
     return result
   }
-  ideaLabList(scope: WorkspaceProfileScope) { return this.ideaLabRequest(scope, client => client.ideaLabList()) }
+  ideaLabList(scope: WorkspaceProfileScope, trashed?: boolean) { return this.ideaLabRequest(scope, client => client.ideaLabList(trashed)) }
+  ideaLabTrash(scope: WorkspaceProfileScope, id: string, input: { expected_revision: number }) { return this.ideaLabRequest(scope, client => client.ideaLabTrash(id, input)) }
+  ideaLabRestore(scope: WorkspaceProfileScope, id: string, input: { expected_revision: number }) { return this.ideaLabRequest(scope, client => client.ideaLabTrash(id, input, true)) }
   ideaLabGet(scope: WorkspaceProfileScope, id: string) { return this.ideaLabRequest(scope, client => client.ideaLabGet(id)) }
   ideaLabPaper(scope: WorkspaceProfileScope, id: string, sourceId: string, sourceHash?: string, generationId?: string) { return this.ideaLabRequest(scope, client => client.ideaLabPaper(id, sourceId, sourceHash, generationId)) }
   async ideaLabSaveOriginal(expected: WorkspaceProfileScope, id: string, sourceId: string, sourceHash: string, generationId: string, provenanceHash: string): Promise<IdeaOriginalSaveResult | null> {
@@ -1890,7 +1892,9 @@ export class AppService {
   researchBranchesControl(scope: WorkspaceProfileScope, campaign: string, branch: string, input: BranchControlInput) { return this.ideaLabRequest(scope, client => client.researchBranchesControl(campaign, branch, input)) }
   researchBranchesRun(scope: WorkspaceProfileScope, campaign: string, branch: string, input: BranchMutation) { return this.ideaLabRequest(scope, client => client.researchBranchesRun(campaign, branch, input)) }
   researchLabCapabilities(scope: WorkspaceProfileScope) { return this.ideaLabRequest(scope, client => client.researchLabCapabilities()) }
-  researchLabList(scope: WorkspaceProfileScope, before?: string) { return this.ideaLabRequest(scope, client => client.researchLabList(before)) }
+  researchLabList(scope: WorkspaceProfileScope, before?: string, trashed?: boolean) { return this.ideaLabRequest(scope, client => client.researchLabList(before, trashed)) }
+  researchLabTrash(scope: WorkspaceProfileScope, id: string, input: LabMutation) { return this.ideaLabRequest(scope, client => client.researchLabTrash(id, input)) }
+  researchLabRestore(scope: WorkspaceProfileScope, id: string, input: LabMutation) { return this.ideaLabRequest(scope, client => client.researchLabTrash(id, input, true)) }
   researchLabGet(scope: WorkspaceProfileScope, id: string) { return this.ideaLabRequest(scope, client => client.researchLabGet(id)) }
   researchLabIdeaSeed(scope: WorkspaceProfileScope, id: string) { return this.ideaLabRequest(scope, client => client.researchLabIdeaSeed(id)) }
   researchLabCreate(scope: WorkspaceProfileScope, input: LabCreate) { return this.ideaLabRequest(scope, client => client.researchLabCreate(input)) }

@@ -123,19 +123,21 @@ class ResearchLabInspector:
             if db is not None:
                 db.close()
 
-    def list(self, before=None, limit=50):
-        limit, key = _limit(limit), _uncursor(before, "list", None)
+    def list(self, before=None, limit=50, trashed=False):
+        page_kind = "trash" if trashed else "list"
+        limit, key = _limit(limit), _uncursor(before, page_kind, None)
         sql = "SELECT id,json_extract(payload,'$.updated_at') AS updated_at,json_set(payload,'$.rounds',json('[]'),'$.claims',json('[]'),'$.decisions',json('[]'),'$.comparisons',json('[]'),'$.events',json('[]'),'$.current_plan',NULL) AS compact FROM campaigns"
+        sql += " WHERE json_extract(payload,'$.deleted_at') " + ("IS NOT NULL" if trashed else "IS NULL")
         args = []
         if key is not None:
-            sql += " WHERE (json_extract(payload,'$.updated_at'),id) < (?,?)"
+            sql += " AND (json_extract(payload,'$.updated_at'),id) < (?,?)"
             args.extend(key)
         sql += " ORDER BY updated_at DESC,id DESC LIMIT ?"
         args.append(limit + 1)
         with self._db() as db:
             rows = db.execute(sql, args).fetchall()
             return _page(rows, limit, lambda r: json.loads(r["compact"]),
-                         lambda r: [r["updated_at"], r["id"]], "list", None)
+                         lambda r: [r["updated_at"], r["id"]], page_kind, None)
 
     def history(self, campaign_id, before=None, limit=50):
         limit, key = _limit(limit), _uncursor(before, "history", campaign_id)

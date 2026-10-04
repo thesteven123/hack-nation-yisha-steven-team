@@ -73,7 +73,9 @@ const api: AgentsDockAPI = {
       artifact: (scope, campaign, job, hash) => ipcRenderer.invoke('research-model:artifact', scope, campaign, job, hash)
     },
     capabilities: scope => ipcRenderer.invoke('research-lab:capabilities', scope),
-    list: (scope, before) => ipcRenderer.invoke('research-lab:list', scope, before),
+    list: (scope, before, trashed) => ipcRenderer.invoke('research-lab:list', scope, before, trashed),
+    trash: (scope, id, input) => ipcRenderer.invoke('research-lab:trash', scope, id, input),
+    restore: (scope, id, input) => ipcRenderer.invoke('research-lab:restore', scope, id, input),
     get: (scope, id) => ipcRenderer.invoke('research-lab:get', scope, id),
     ideaSeed: (scope, id) => ipcRenderer.invoke('research-lab:idea-seed', scope, id),
     create: (scope, input) => ipcRenderer.invoke('research-lab:create', scope, input),
@@ -88,7 +90,9 @@ const api: AgentsDockAPI = {
     export: (scope, id) => ipcRenderer.invoke('research-lab:export', scope, id)
   },
   ideaLab: {
-    list: scope => ipcRenderer.invoke('idea-lab:list', scope),
+    list: (scope, trashed) => ipcRenderer.invoke('idea-lab:list', scope, trashed),
+    trash: (scope, id, input) => ipcRenderer.invoke('idea-lab:trash', scope, id, input),
+    restore: (scope, id, input) => ipcRenderer.invoke('idea-lab:restore', scope, id, input),
     get: (scope, id) => ipcRenderer.invoke('idea-lab:get', scope, id),
     paper: (scope, id, sourceId, sourceHash, generationId) => ipcRenderer.invoke('idea-lab:paper', scope, id, sourceId, sourceHash, generationId),
     saveOriginal: (scope, id, sourceId, sourceHash, generationId, provenanceHash) => ipcRenderer.invoke('idea-lab:save-original', scope, id, sourceId, sourceHash, generationId, provenanceHash),

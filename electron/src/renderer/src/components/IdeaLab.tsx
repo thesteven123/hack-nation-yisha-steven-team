@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { ArrowLeft, Check, FlaskConical, LoaderCircle, Plus, RefreshCw, Square, X } from 'lucide-react'
+import { ArrowLeft, Check, FlaskConical, LoaderCircle, Plus, RefreshCw, Square, Trash2, X } from 'lucide-react'
 import { t } from '@shared/i18n'
 import type { IdeaBrief, IdeaDecisionInput, IdeaDirection, IdeaSession, IdeaSource, IdeaFollowupInput } from '@shared/idea-lab'
 import type { WorkspaceProfileScope } from '@shared/types'
 import { useLocale } from '../lib/i18n'
 import { ResearchWorkspace, revealEvidence, SourceLink, HistoricalEvidence, FrozenEvidenceSource } from './IdeaResearch'
+import { ResearchTrashDialog } from './ResearchTrashDialog'
 import './idea-lab.css'
 
 const blank = (): IdeaBrief => ({ goal: '', hypothesis: '', constraints: '', sources: [] })
@@ -28,6 +29,8 @@ export function IdeaLab({ scope, onClose }: { scope: WorkspaceProfileScope | nul
   const [brief, setBrief] = useState<IdeaBrief>(blank)
   const [items, setItems] = useState<IdeaSession[]>([])
   const [hasMore, setHasMore] = useState(false)
+  const [trashMode, setTrashMode] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<IdeaSession | null>(null)
   const [session, setSession] = useState<IdeaSession | null>(null)
   const [past, setPast] = useState<IdeaSession[]>([])
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -66,14 +69,14 @@ export function IdeaLab({ scope, onClose }: { scope: WorkspaceProfileScope | nul
     if (!api || !scope) return
     const epoch = ++listEpoch.current
     try {
-      const page = await api.list(scope)
+      const page = await (trashMode ? api.list(scope, true) : api.list(scope))
       if (!alive.current || scopeKey !== scopeRef.current || epoch !== listEpoch.current) return
       setItems(page.items); setHasMore(page.has_more)
     } catch (problem) { if (alive.current && scopeKey === scopeRef.current) setError(failure(problem)) }
-  }, [api, scopeKey])
+  }, [api, scopeKey, trashMode])
   useEffect(() => {
     viewEpoch.current += 1; listEpoch.current += 1
-    owned.current.clear(); setSession(null); setBrief(readDraft(draftKey)); setPast([]); setItems([]); setFeedback(''); setAnswers({}); setSelectedIds([]); setNextGoal(''); setError(''); setBusy(false)
+    owned.current.clear(); setSession(null); setDeleteTarget(null); setBrief(readDraft(draftKey)); setPast([]); setItems([]); setFeedback(''); setAnswers({}); setSelectedIds([]); setNextGoal(''); setError(''); setBusy(false)
     void refreshList()
   }, [scopeKey, refreshList])
 
@@ -113,8 +116,24 @@ export function IdeaLab({ scope, onClose }: { scope: WorkspaceProfileScope | nul
   }, [scopeKey, session?.id, session?.generation_id, running, ownsRun, api, viewEpoch.current])
 
   const newBrief = () => {
+    setTrashMode(false)
     viewEpoch.current += 1; setSession(null); setBrief(readDraft(draftKey)); setFeedback(''); setPast([]); setHistoryOpen(false); setError('')
     createKey.current = null
+  }
+  const setDeleted = async (target: IdeaSession, restore = false) => {
+    if (!api || !scope || busy) return
+    const epoch = viewEpoch.current, key = scopeKey
+    setBusy(true); setError('')
+    try {
+      await api[restore ? 'restore' : 'trash'](scope, target.id, { expected_revision: target.revision })
+      if (!isCurrent(epoch, key)) return
+      ++listEpoch.current
+      setItems(previous => previous.filter(item => item.id !== target.id)); setDeleteTarget(null)
+      owned.current.delete(target.id)
+      if (current.current?.id === target.id) { setSession(null); setBrief(readDraft(draftKey)); setPast([]); setHistoryOpen(false) }
+      await refreshList()
+    } catch (problem) { if (isCurrent(epoch, key)) setError(failure(problem)) }
+    finally { if (isCurrent(epoch, key)) setBusy(false) }
   }
   const editBrief = (next: IdeaBrief) => { setBrief(next); createKey.current = null; try { localStorage.setItem(draftKey, JSON.stringify(next)) } catch { /* optional draft storage */ } }
   const editSource = (index: number, patch: Partial<IdeaSource>) => editBrief({ ...brief, sources: brief.sources.map((source, i) => i === index ? { ...source, ...patch } : source) })
@@ -248,15 +267,18 @@ export function IdeaLab({ scope, onClose }: { scope: WorkspaceProfileScope | nul
       <aside className="idea-lab-history" aria-label={t('ideaLab.recent')}>
         <div className="idea-lab-actions"><button className="quiet-button" disabled={busy} onClick={newBrief}><Plus size={14} />{t('ideaLab.new')}</button>
           <button className="icon-button" aria-label={t('ideaLab.refreshHistory')} disabled={busy} onClick={() => void refreshList()}><RefreshCw size={14} /></button></div>
-        <h2>{t('ideaLab.recent')}</h2>
-        {!items.length && <p>{t('ideaLab.noHistory')}</p>}
-        {items.map(item => <button key={item.id} className={`idea-lab-history-item ${session?.id === item.id ? 'selected' : ''}`} disabled={busy} onClick={() => void load(item.id)}>
-          <span>{item.brief.goal}</span><small>{t(`ideaLab.readiness.${item.research?.readiness ?? 'legacy_unsearched'}`)}</small>
-        </button>)}
+        <button className="quiet-button" disabled={busy} onClick={() => setTrashMode(value => !value)}><Trash2 size={14} />{t(trashMode ? 'researchTrash.active' : 'researchTrash.trash')}</button>
+        <h2>{t(trashMode ? 'researchTrash.trash' : 'ideaLab.recent')}</h2>
+        {!items.length && <p>{t(trashMode ? 'researchTrash.empty' : 'ideaLab.noHistory')}</p>}
+        {items.map(item => <div className="research-history-row" key={item.id}><button className={`idea-lab-history-item ${session?.id === item.id ? 'selected' : ''}`} disabled={busy || trashMode} onClick={() => void load(item.id)}>
+          <span>{item.brief.goal}</span><small title={t(`ideaLab.readiness.${item.research?.readiness ?? 'legacy_unsearched'}`)}>{t(`ideaLab.readiness.${item.research?.readiness ?? 'legacy_unsearched'}`)}</small>
+        </button>{trashMode ? <button className="quiet-button" disabled={busy} aria-label={t('researchTrash.restoreNamed', { goal: item.brief.goal })} onClick={() => void setDeleted(item, true)}>{t('researchTrash.restore')}</button>
+          : <button className="icon-button research-history-delete" disabled={busy || item.status === 'running'} aria-label={t('researchTrash.deleteNamed', { goal: item.brief.goal })} title={t(item.status === 'running' ? 'researchTrash.stopFirst' : 'researchTrash.delete')} onClick={() => { setDeleteTarget(item); setError('') }}><Trash2 size={14} /></button>}</div>)}
         {hasMore && <p>{t('ideaLab.recentOnly')}</p>}
       </aside>
       <div ref={contentRef} className="idea-lab-content">
         {error && <div role="alert" className="idea-lab-error">{error}<button className="icon-button" aria-label={t('ideaLab.dismiss')} onClick={() => setError('')}><X size={14} /></button></div>}
+        {trashMode ? <section className="idea-lab-section"><h2>{t('researchTrash.trash')}</h2><p>{t('researchTrash.description')}</p></section> : <>
         <section className="idea-lab-section">
           <div className="idea-lab-section-heading"><h2>{t('ideaLab.brief')}</h2>{!session && <button className="quiet-button" disabled={busy} onClick={() => editBrief(structuredClone(DEMO))}>{t('ideaLab.demo')}</button>}{session && <button className="quiet-button" aria-expanded={briefExpanded} aria-controls="idea-brief-fields" onClick={() => setBriefExpanded(value => !value)}>{t(briefExpanded ? 'ideaLab.collapseBrief' : 'ideaLab.expandBrief')}</button>}</div>
           {session && <p className="idea-lab-goal-summary" title={brief.goal}>{brief.goal}</p>}
@@ -328,8 +350,10 @@ export function IdeaLab({ scope, onClose }: { scope: WorkspaceProfileScope | nul
             {previous.result?.ideas?.directions.map(direction => <p key={direction.id}><strong>{direction.title}: </strong>{direction.question}</p>)}
           </details>)}</div>}
         </section>}
+        </>}
       </div>
     </div>}
+    <ResearchTrashDialog goal={deleteTarget?.brief.goal ?? null} busy={busy} error={error} onCancel={() => setDeleteTarget(null)} onConfirm={() => { if (deleteTarget) void setDeleted(deleteTarget) }} />
   </section>
 }
 

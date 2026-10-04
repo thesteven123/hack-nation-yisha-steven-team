@@ -41,8 +41,9 @@ Do not claim full-text reading, peer review, replication or inference validity f
 search snippets. The independent reader will fetch actual text from discovered URLs.
 Return JSON with selected [{url,reason}], summary and gaps. Select only URLs that
 the native web tool returned during this task. Selection reasons are your relevance
-assessment, not observed evidence. Follow the user's goal language (Chinese for a
-Chinese goal). Searching/ideation never authorizes experiment execution.
+assessment, not observed evidence. Write summaries, relevance reasons and gaps
+in English. Search in whichever languages help answer the user's objective;
+preserve original source titles. Searching/ideation never authorizes experiment execution.
 """
 DISCOVERY_SCHEMA = {
     "type": "object", "additionalProperties": False,

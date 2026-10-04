@@ -1261,7 +1261,12 @@ export class AgentServerClient {
   async researchBranchesRun(campaign: string, branch: string, input: BranchMutation) { return this.branchResponse(await this.labRequest(`/${labId(campaign)}/branches/${labBranchId(branch)}/run`, input), campaign) }
   private branchResponse(value: unknown, campaign: string) { const result = parseLabCampaign(value); if (result.id !== campaign || !result.branch_set) throw new Error('Invalid research branch response.'); return result }
   async researchLabCapabilities() { return parseLabCapabilities(await this.labRequest('/capabilities')) }
-  async researchLabList(before?: string) { return parseLabPage(await this.labRequest(labCursorQuery(before))) }
+  async researchLabList(before?: string, trashed = false) { return parseLabPage(await this.labRequest(`${trashed ? '/trash' : ''}${labCursorQuery(before)}`)) }
+  async researchLabTrash(id: string, input: LabMutation, restore = false) {
+    const result = parseLabCampaign(await this.labRequest(`/${labId(id)}/${restore ? 'restore' : 'trash'}`, input))
+    if (result.id !== id || Boolean(result.deleted_at) === restore) throw new Error('Invalid research trash response.')
+    return result
+  }
   async researchLabGet(id: string) { return parseLabCampaign(await this.labRequest(`/${labId(id)}`)) }
   async researchLabIdeaSeed(id: string) { return parseLabSeed(await this.labRequest(`/idea-seed/${labId(id)}`)) }
   async researchLabCreate(input: LabCreate) { return parseLabCampaign(await this.labRequest('', input)) }
@@ -1289,8 +1294,13 @@ export class AgentServerClient {
     return { json, campaign_id: campaignId, bundle_sha256: bundle.bundle_sha256 }
   }
 
-  async ideaLabList() {
-    return parseIdeaPage(await this.privilegedNativeRequest('/api/research/ideas'))
+  async ideaLabList(trashed = false) {
+    return parseIdeaPage(await this.privilegedNativeRequest(`/api/research/ideas${trashed ? '/trash' : ''}`))
+  }
+  async ideaLabTrash(id: string, input: { expected_revision: number }, restore = false) {
+    const result = parseIdeaSession(await this.privilegedNativeRequest(`/api/research/ideas/${ideaSessionId(id)}/${restore ? 'restore' : 'trash'}`, { method: 'POST', body: JSON.stringify(input) }, DEFAULT_REQUEST_TIMEOUT_MS, 200, 4 * 1024 * 1024))
+    if (result.id !== id || Boolean(result.deleted_at) === restore) throw new Error('Invalid Idea Lab trash response.')
+    return result
   }
   async ideaLabGet(id: string) {
     return parseIdeaSession(await this.privilegedNativeRequest(`/api/research/ideas/${ideaSessionId(id)}`, {}, DEFAULT_REQUEST_TIMEOUT_MS, 200, 4 * 1024 * 1024))
@@ -3261,6 +3271,9 @@ function isPrivilegedNativeControlTarget(
     || !target.pathname.startsWith(`${serverPrefix}/api/`)
   ) return false
   const path = target.pathname.slice(serverPrefix.length)
+  if (path === '/api/research/ideas/trash') return method === 'GET' && !target.search
+  if (path === '/api/research/lab/trash') return method === 'GET' && (!target.search || /^\?before=[A-Za-z0-9_-]{1,1024}&limit=50$/.test(target.search))
+  if (/^\/api\/research\/(?:ideas|lab)\/[A-Za-z0-9_-]{1,128}\/(?:trash|restore)$/.test(path)) return method === 'POST' && !target.search
   if (/^\/api\/research\/lab\/protocols\/(planning-v0\.5|records-v0\.5|execution-v0\.5|analysis-review-v0\.5|literature-cache-v0\.5)$/.test(path)
     || /^\/api\/research\/lab\/[A-Za-z0-9_-]{1,128}\/export$/.test(path)
     || /^\/api\/research\/lab\/[A-Za-z0-9_-]{1,128}\/dependencies\/export$/.test(path)) return method === 'GET' && !target.search

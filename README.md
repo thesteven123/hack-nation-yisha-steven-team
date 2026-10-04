@@ -1,7 +1,7 @@
-**AI Lab 独立开发分支**
+**AI Lab independent development branch**
 
-这是队伍的独立 AI Lab 开发分支，已提供有限工作流；完整 v0.5 尚未验收。
-[快速上手](docs/AI_LAB_QUICKSTART.md) · [验收范围与缺口](docs/AI_LAB_ACCEPTANCE.md) · [Windows 启动入口](Start-AILab.cmd)
+This team branch provides bounded AI Lab workflows with English pages and reversible research deletion. Full v0.5 acceptance remains partial.
+[Quick start](docs/AI_LAB_QUICKSTART.md) · [Acceptance and limitations](docs/AI_LAB_ACCEPTANCE.md) · [Windows launcher](Start-AILab.cmd)
 
 <h1 align="center">AgentsDock: an IDE designed for agentic AI research</h1>
 

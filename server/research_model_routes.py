@@ -27,8 +27,18 @@ def create_research_model_router(*, storage_root, lab_root, authorize, native_op
     @contextmanager
     def dependency_guard(campaign_id):
         try:
-            with dependency_factory().run_guard(campaign_id):
+            with dependency_factory().run_guard(campaign_id) if dependency_factory else nullcontext():
                 yield
+        except LabError as exc:
+            raise ModelJobError(exc.code, exc.message) from None
+
+    @contextmanager
+    def admission_guard(campaign_id):
+        try:
+            with dependency_guard(campaign_id):
+                with lab()._db(write=True) as db:
+                    lab()._load(db, campaign_id)
+                    yield
         except LabError as exc:
             raise ModelJobError(exc.code, exc.message) from None
 
@@ -99,8 +109,9 @@ def create_research_model_router(*, storage_root, lab_root, authorize, native_op
                 kwargs = {"generate": generate} if generate else {}
                 kwargs["publication_guard"] = publication_guard
                 kwargs["branch_guard"] = branch_guard
+                kwargs["admission_guard"] = admission_guard
                 if dependency_factory is not None:
-                    kwargs.update(admission_guard=dependency_guard, dependency_check=dependency_check)
+                    kwargs["dependency_check"] = dependency_check
                 cached_jobs = ResearchModelJobs(storage_root, **kwargs)
             return cached_jobs
 
@@ -129,7 +140,7 @@ def create_research_model_router(*, storage_root, lab_root, authorize, native_op
             return await operation()
         except (LabError, ModelJobError) as exc:
             status = {"not_found": 404, "revision_conflict": 409, "idempotency_conflict": 409,
-                      "model_changed": 409, "busy": 409, "closed": 503,
+                      "model_changed": 409, "busy": 409, "deleted": 409, "closed": 503,
                       "budget_exhausted": 409, "unsupported_schema": 409,
                       "dependency_stale": 409, "dependency_limit": 409,
                       "branch_scope_changed": 409, "branch_blocked": 409, "branch_scope_unknown": 409,

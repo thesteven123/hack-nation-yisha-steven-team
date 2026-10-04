@@ -322,13 +322,16 @@ class IdeaStore:
                 db.close()
 
     @staticmethod
-    def _get(db, session_id):
+    def _get(db, session_id, *, include_deleted=False):
         if not isinstance(session_id, str) or not re.fullmatch(r"[0-9a-f]{32}", session_id):
             raise IdeaError("not_found", "Idea session was not found")
         row = db.execute("SELECT data FROM sessions WHERE id=?", (session_id,)).fetchone()
         if row is None:
             raise IdeaError("not_found", "Idea session was not found")
-        return _hydrate(json.loads(row["data"]))
+        item = _hydrate(json.loads(row["data"]))
+        if item.get("deleted_at") and not include_deleted:
+            raise IdeaError("deleted", "This research is in Trash. Restore it before opening or continuing it.")
+        return item
 
     @staticmethod
     def _save(db, item, event, **details):
@@ -370,10 +373,24 @@ class IdeaStore:
         with self._db() as db:
             return self._get(db, session_id)
 
-    def list(self):
+    def list(self, trashed=False):
         with self._db() as db:
-            rows = db.execute("SELECT data FROM sessions ORDER BY updated_at DESC,id LIMIT 51").fetchall()
+            condition = "IS NOT NULL" if trashed else "IS NULL"
+            rows = db.execute(f"SELECT data FROM sessions WHERE json_extract(data,'$.deleted_at') {condition} ORDER BY updated_at DESC,id LIMIT 51").fetchall()
             return _page_items(rows, listing=True)
+
+    def set_deleted(self, session_id, request, deleted):
+        """Remove from active work without erasing shared evidence or history."""
+        _keys(request, ("expected_revision",))
+        with self._db() as db:
+            item = self._get(db, session_id, include_deleted=True)
+            self._revision(item, request["expected_revision"])
+            if bool(item.get("deleted_at")) == deleted:
+                return item
+            if item["status"] == "running":
+                raise IdeaError("busy", "Stop this generation before deleting the research.")
+            item["deleted_at"] = _now() if deleted else None
+            return self._save(db, item, "deleted" if deleted else "restored")
 
     def history(self, session_id):
         with self._db() as db:

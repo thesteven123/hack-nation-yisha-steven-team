@@ -479,11 +479,49 @@ class ResearchLabStore(BranchController):
                               "literature_entry": "/api/research/ideas", "max_actions": 12, "max_rounds": 6}}
 
     @staticmethod
-    def _load(db, campaign_id):
+    def _load(db, campaign_id, *, include_deleted=False):
         row = db.execute("SELECT payload FROM campaigns WHERE id=?", (campaign_id,)).fetchone()
         if row is None:
             raise LabError("not_found", "Research campaign was not found")
-        return json.loads(row[0])
+        item = json.loads(row[0])
+        if item.get("deleted_at") and not include_deleted:
+            raise LabError("deleted", "This research is in Trash. Restore it before opening or continuing it.")
+        return item
+
+    def _require_idle_models(self, campaign_id):
+        # Admission and publication hold the Lab write lock before accessing
+        # model jobs. The trash transaction uses the same Lab -> jobs order.
+        path = self.root.parent / "model-jobs" / "model-jobs.sqlite3"
+        if not path.exists():
+            return
+        if path.is_symlink() or path.parent.is_symlink():
+            raise LabError("storage_error", "Cannot verify the native role state.")
+        jobs = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=5)
+        try:
+            if jobs.execute("SELECT 1 FROM jobs WHERE campaign_id=? AND json_extract(payload,'$.status')='running' LIMIT 1", (campaign_id,)).fetchone():
+                raise LabError("busy", "Stop the active native role before deleting this research.")
+        finally:
+            jobs.close()
+
+    def set_deleted(self, campaign_id, request, deleted):
+        _fields(request, {"expected_revision", "idempotency_key"})
+        _integer(request["expected_revision"], 1, 2147483647)
+        operation = "deleted" if deleted else "restored"
+        with self._db(write=True) as db:
+            item = self._load(db, campaign_id, include_deleted=True)
+            replay, fingerprint = self._replay(db, campaign_id, request["idempotency_key"], {"operation": operation, **request})
+            if replay is not None:
+                return self.project(replay)
+            if item["revision"] != request["expected_revision"]:
+                raise LabError("revision_conflict", "The campaign changed; reload before deleting or restoring it")
+            self._require_idle_models(campaign_id)
+            if bool(item.get("deleted_at")) != deleted:
+                item["revision"] += 1
+                item["deleted_at"] = _now() if deleted else None
+                if item.get("branch_set"):
+                    item["branch_set"]["authority_epoch"] += 1
+                self._save(db, item, operation)
+            return self._remember(db, campaign_id, request["idempotency_key"], fingerprint, item)
 
     @staticmethod
     def _read_artifact(db, digest):
@@ -660,6 +698,9 @@ class ResearchLabStore(BranchController):
         with self._db(write=True) as db:
             replay, fingerprint = self._replay(db, "create", request["idempotency_key"], request)
             if replay is not None:
+                # Creation receipts remain immutable; a retry must not reopen
+                # a research item that the person has since moved to Trash.
+                self._load(db, replay["id"])
                 return self.project(replay)
             resolved = request
             if request.get("origin") is not None:
@@ -740,7 +781,7 @@ class ResearchLabStore(BranchController):
 
     def list(self):
         with self._db() as db:
-            rows = db.execute("SELECT payload FROM campaigns ORDER BY json_extract(payload,'$.updated_at') DESC LIMIT 51").fetchall()
+            rows = db.execute("SELECT payload FROM campaigns WHERE json_extract(payload,'$.deleted_at') IS NULL ORDER BY json_extract(payload,'$.updated_at') DESC LIMIT 51").fetchall()
             items = []
             for row in rows[:50]:
                 item = json.loads(row[0])

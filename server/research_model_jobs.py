@@ -143,7 +143,8 @@ An arbitrary scientific goal may be outside the configured adapter capabilities.
 Say needs_method/not_applicable instead of forcing it into quote or numerical demos.
 Uninspected references are not evidence. Preserve gaps and counterevidence.
 Independent role contexts are not proof of independent errors or scientific support.
-Use the language of the user's objective. Return only the requested JSON object.
+Write human-facing prose in English, even when the objective uses another language.
+Preserve any exact source quotations and original titles. Return only the requested JSON object.
 """
 ROLE_INSTRUCTIONS = {
     "planner": "Assess every supplied candidate against the actual objective and success criterion. Select only an executable listed action, or state needs_input/needs_method. A recommendation does not run it. Explain why rejected methods do not answer the goal; never invent an adapter, experiment, dataset or method parameters.",

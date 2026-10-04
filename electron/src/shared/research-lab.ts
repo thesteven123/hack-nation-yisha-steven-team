@@ -34,6 +34,7 @@ export interface LabDependencyStatus {
   corrections: { id: string; scope: string; reason: string; affected_input_hashes: string[] }[]; pending_deliveries: number;
 }
 export interface LabCampaign {
+  deleted_at?: string | null;
   branch_set?: LabBranchSet | null;
   dependency_status?: LabDependencyStatus;
   hypothesis_set?: LabHypothesisSet | null; hypothesis_set_artifact?: string | null; hypothesis_set_status?: 'current_context' | 'needs_revalidation' | 'not_specified';
@@ -65,7 +66,9 @@ export interface ResearchLabAPI {
   branches?: ResearchBranchesAPI
   models?: import('./research-models').ResearchModelAPI
   capabilities(scope: WorkspaceProfileScope): Promise<LabCapabilities>
-  list(scope: WorkspaceProfileScope, before?: string): Promise<LabPage>
+  list(scope: WorkspaceProfileScope, before?: string, trashed?: boolean): Promise<LabPage>
+  trash(scope: WorkspaceProfileScope, id: string, input: LabMutation): Promise<LabCampaign>
+  restore(scope: WorkspaceProfileScope, id: string, input: LabMutation): Promise<LabCampaign>
   get(scope: WorkspaceProfileScope, id: string): Promise<LabCampaign>
   ideaSeed(scope: WorkspaceProfileScope, id: string): Promise<LabSeed>
   create(scope: WorkspaceProfileScope, input: LabCreate): Promise<LabCampaign>
@@ -137,6 +140,7 @@ export function parseLabRound(value: unknown): LabRound {
 }
 export function parseLabCampaign(value: unknown): LabCampaign {
   const branchValue = obj(value)
+  if (branchValue.deleted_at !== undefined && branchValue.deleted_at !== null && (typeof branchValue.deleted_at !== 'string' || !branchValue.deleted_at)) invalid()
   if (branchValue.branch_set != null) parseLabBranchSet(branchValue.branch_set, branchValue.id)
   const row = obj(value); labId(row.id); brief(row.brief); manifest(row.adapter)
   if (row.hypothesis_set != null) parseLabHypothesisSet(row.hypothesis_set)

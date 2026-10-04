@@ -1,6 +1,6 @@
 import { ResearchBranchWorkspace } from './ResearchBranchWorkspace'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { ArrowLeft, FlaskConical, LoaderCircle, Plus, RefreshCw } from 'lucide-react'
+import { ArrowLeft, FlaskConical, LoaderCircle, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { t } from '@shared/i18n'
 import type { WorkspaceProfileScope } from '@shared/types'
 import { LAB_PROTOCOL_IDS, parseLabRound, type LabRound, type LabAdapterId, type LabArtifact, type LabBrief, type LabCampaign, type LabCapabilities, type LabCreate, type LabDecision, type LabHistory, type LabInputs, type LabOrigin, type LabProtocol, type LabProtocolId, type LabExportSaved, type LabImportCoverage, type LabCorrection, type SourceInputs, type LabHypothesisSetInput, type LabSource } from '@shared/research-lab'
@@ -8,6 +8,7 @@ import { useLocale } from '../lib/i18n'
 import { ResearchInputs, emptyInputs, fromInputs, parseInputs, sharedCorrectionSource, type InputDraft } from './ResearchInputs'
 import { ResearchComparison, ResearchLimits, ResearchPlan, ResearchResult } from './ResearchResults'
 import { researchText } from './ResearchLanguage'
+import { ResearchTrashDialog } from './ResearchTrashDialog'
 import { SourceLink } from './IdeaResearch'
 import { ResearchModels } from './ResearchModels'
 import { HypothesisEditor, HypothesisSetView, editableHypothesisSet, hypothesisEvidenceOptions, validateHypothesisInput } from './ResearchHypotheses'
@@ -22,6 +23,8 @@ const readDraft = (key: string): Draft => { try { const value = JSON.parse(local
 export function ResearchLab({ scope, onClose, initialIdeaId }: { scope: WorkspaceProfileScope | null; onClose: () => void; initialIdeaId?: string | null }) {
   useLocale()
   const api = window.agentsDock.researchLab
+  const [trashMode, setTrashMode] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<LabCampaign | null>(null)
   const scopeKey = JSON.stringify(scope), storageKey = `agentsdock-research-draft:${scope?.profileId ?? ''}:${scope?.serverIdentity ?? ''}`
   const [draft, setDraft] = useState<Draft>(() => readDraft(storageKey))
   const [campaign, setCampaign] = useState<LabCampaign | null>(null)
@@ -67,12 +70,12 @@ export function ResearchLab({ scope, onClose, initialIdeaId }: { scope: Workspac
   useLayoutEffect(() => { if (contentRef.current) contentRef.current.scrollTop = 0 }, [campaign?.id, initialIdeaId])
   useEffect(() => {
     const version = ++epoch.current, owner = scopeKey
-    setCampaign(null); setItems([]); setDraft(readDraft(storageKey)); setHistory(null); setArtifacts({}); setProtocols({}); setSavedExport(null); setCorrection(null); setHypothesisEdit(null); setFeedback(''); setError(''); setBusy(false); setBranchBusy(false)
+    setCampaign(null); setDeleteTarget(null); setItems([]); setDraft(readDraft(storageKey)); setHistory(null); setArtifacts({}); setProtocols({}); setSavedExport(null); setCorrection(null); setHypothesisEdit(null); setFeedback(''); setError(''); setBusy(false); setBranchBusy(false)
     if (!api || !scope) return
-    Promise.all([api.list(scope), api.capabilities(scope)]).then(([page, manifest]) => { if (current(version, owner)) { setItems(page.items); setHasMore(page.has_more); setNextCursor(page.next_cursor ?? null); setCapabilities(manifest) } }).catch(problem => { if (current(version, owner)) setError(message(problem)) })
+    Promise.all([trashMode ? api.list(scope, undefined, true) : api.list(scope), api.capabilities(scope)]).then(([page, manifest]) => { if (current(version, owner)) { setItems(page.items); setHasMore(page.has_more); setNextCursor(page.next_cursor ?? null); setCapabilities(manifest) } }).catch(problem => { if (current(version, owner)) setError(message(problem)) })
     // Import is read-only and happens only after the user's explicit Idea button.
-    if (initialIdeaId) { setBusy(true); api.ideaSeed(scope, initialIdeaId).then(seed => { if (current(version, owner)) edit({ ...blank(), brief: seed.brief, origin: seed.origin, inputs: fromInputs(seed.inputs), importCoverage: seed.import_coverage }) }).catch(problem => { if (current(version, owner)) setError(message(problem)) }).finally(() => { if (current(version, owner)) setBusy(false) }) }
-  }, [scopeKey, initialIdeaId, api])
+    if (initialIdeaId && !trashMode) { setBusy(true); api.ideaSeed(scope, initialIdeaId).then(seed => { if (current(version, owner)) edit({ ...blank(), brief: seed.brief, origin: seed.origin, inputs: fromInputs(seed.inputs), importCoverage: seed.import_coverage }) }).catch(problem => { if (current(version, owner)) setError(message(problem)) }).finally(() => { if (current(version, owner)) setBusy(false) }) }
+  }, [scopeKey, initialIdeaId, api, trashMode])
   useEffect(() => {
     setHypothesisEdit(null)
     if (!campaign) return
@@ -116,7 +119,18 @@ export function ResearchLab({ scope, onClose, initialIdeaId }: { scope: Workspac
   }
   const editCorrection = (next: InputDraft, shared = false) => { setCorrection(next); setSharedCorrection(shared); if (campaign) { try { localStorage.setItem(`${storageKey}:correction:${campaign.id}:${campaign.revision}`, JSON.stringify({ draft: next, shared })) } catch { /* preserve in memory */ } } }
   const readHistory = (before?: string) => operate(async () => { if (!api || !scope || !campaign) return; const version = epoch.current, owner = scopeKey, value = await api.history(scope, campaign.id, before); if (current(version, owner)) setHistory(old => ({ ...value, items: before ? [...new Map([...(old?.items ?? []), ...value.items].map(item => [item.revision, item])).values()] : value.items })) })
-  const moreItems = () => operate(async () => { if (!api || !scope || !nextCursor) return; const version = epoch.current, owner = scopeKey, value = await api.list(scope, nextCursor); if (current(version, owner)) { setItems(old => [...new Map([...old, ...value.items].map(item => [item.id, item])).values()]); setHasMore(value.has_more); setNextCursor(value.next_cursor ?? null) } })
+  const moreItems = () => operate(async () => { if (!api || !scope || !nextCursor) return; const version = epoch.current, owner = scopeKey, value = await (trashMode ? api.list(scope, nextCursor, true) : api.list(scope, nextCursor)); if (current(version, owner)) { setItems(old => [...new Map([...old, ...value.items].map(item => [item.id, item])).values()]); setHasMore(value.has_more); setNextCursor(value.next_cursor ?? null) } })
+  const setDeleted = (target: LabCampaign, restore = false) => operate(async () => {
+    if (!api || !scope) return
+    const version = epoch.current, owner = scopeKey, method = restore ? 'restore' : 'trash'
+    const input = { expected_revision: target.revision, idempotency_key: keyFor(`${method}:${target.id}:${target.revision}`) }
+    await api[method](scope, target.id, input)
+    if (!current(version, owner)) return
+    setDeleteTarget(null); setItems(old => old.filter(item => item.id !== target.id))
+    if (campaign?.id === target.id) { setCampaign(null); setDraft(readDraft(storageKey)); setArtifacts({}); setHistory(null); setCorrection(null); setSavedExport(null) }
+    const page = await (trashMode ? api.list(scope, undefined, true) : api.list(scope))
+    if (current(version, owner)) { setItems(page.items); setHasMore(page.has_more); setNextCursor(page.next_cursor ?? null) }
+  })
   const readProtocol = (id: LabProtocolId) => operate(async () => { if (!api || !scope || protocols[id]) return; const version = epoch.current, owner = scopeKey, value = await api.protocol(scope, id); if (current(version, owner)) setProtocols(old => ({ ...old, [id]: value })) })
   const exportCampaign = () => operate(async () => { if (!api || !scope || !campaign) return; setSavedExport(null); const version = epoch.current, owner = scopeKey, value = await api.export(scope, campaign.id); if (current(version, owner)) setSavedExport(value) })
   const reconcileDependencies = () => operate(async () => { if (!api || !scope || !campaign) return; const version = epoch.current, owner = scopeKey, next = await api.reconcileDependencies(scope, campaign.id); if (current(version, owner)) accept(next) })
@@ -130,12 +144,19 @@ export function ResearchLab({ scope, onClose, initialIdeaId }: { scope: Workspac
   const invalidated = (runId: string) => !!campaign?.claims.some(c => c.run_id === runId && c.status === 'needs_revalidation')
   return <div className="idea-lab research-lab">
     <header className="idea-lab-header"><div><h1><FlaskConical size={20} />{t('researchLab.name')}</h1><p>{t('researchLab.subtitle')}</p></div><button className="quiet-button" onClick={onClose}><ArrowLeft size={15} />{t('researchLab.back')}</button></header>
-    <div className="idea-lab-layout"><aside className="idea-lab-history"><button className="quiet-button" disabled={busy || branchBusy} onClick={() => { epoch.current++; setCampaign(null); setDraft(readDraft(storageKey)); setCorrection(null); setArtifacts({}); setError('') }}><Plus size={15} />{t('researchLab.new')}</button><h2>{t('researchLab.recent')}</h2>{items.map(item => <button className={`idea-lab-history-item ${campaign?.id === item.id ? 'selected' : ''}`} disabled={busy || branchBusy} key={item.id} onClick={() => void load(item.id)}><span>{item.brief.goal}</span><small>{t(`researchLab.status.${item.status}`)}</small></button>)}{hasMore && <button className="quiet-button" disabled={busy || !nextCursor} onClick={() => void moreItems()}>{t('researchLab.moreResearch')}</button>}</aside>
+    <div className="idea-lab-layout"><aside className="idea-lab-history"><button className="quiet-button" disabled={busy || branchBusy} onClick={() => { epoch.current++; setTrashMode(false); setCampaign(null); setDraft(readDraft(storageKey)); setCorrection(null); setArtifacts({}); setError('') }}><Plus size={15} />{t('researchLab.new')}</button>
+      <button className="quiet-button" disabled={busy || branchBusy} onClick={() => setTrashMode(value => !value)}><Trash2 size={14} />{t(trashMode ? 'researchTrash.active' : 'researchTrash.trash')}</button>
+      <h2>{t(trashMode ? 'researchTrash.trash' : 'researchLab.recent')}</h2>
+      {!items.length && trashMode && <p>{t('researchTrash.empty')}</p>}
+      {items.map(item => <div className="research-history-row" key={item.id}><button className={`idea-lab-history-item ${campaign?.id === item.id ? 'selected' : ''}`} disabled={busy || branchBusy || trashMode} onClick={() => void load(item.id)}><span>{item.brief.goal}</span><small>{t(`researchLab.status.${item.status}`)}</small></button>
+        {trashMode ? <button className="quiet-button" disabled={busy} aria-label={t('researchTrash.restoreNamed', { goal: item.brief.goal })} onClick={() => void setDeleted(item, true)}>{t('researchTrash.restore')}</button>
+          : <button className="icon-button research-history-delete" disabled={busy || branchBusy} aria-label={t('researchTrash.deleteNamed', { goal: item.brief.goal })} title={t('researchTrash.delete')} onClick={() => { setDeleteTarget(item); setError('') }}><Trash2 size={14} /></button>}</div>)}
+      {hasMore && <button className="quiet-button" disabled={busy || !nextCursor} onClick={() => void moreItems()}>{t('researchLab.moreResearch')}</button>}</aside>
     <main ref={contentRef} className="idea-lab-content" aria-busy={busy}>
       {(!api || !scope) && <p role="status">{t('researchLab.needServer')}</p>}
       {error && <div className="idea-lab-error" role="alert">{error}<button className="quiet-button" onClick={() => setError('')}>{t('researchLab.dismiss')}</button></div>}
       {busy && <p role="status"><LoaderCircle className="spin" size={15} /> {t('researchLab.working')}</p>}
-      {!campaign ? <>
+      {trashMode ? <section className="idea-lab-section"><h2>{t('researchTrash.trash')}</h2><p>{t('researchTrash.description')}</p></section> : !campaign ? <>
         <section className="idea-lab-section"><h2>{t('researchLab.start')}</h2><p>{t('researchLab.scopeNotice')}</p>
           {draft.origin && <p className="research-lab-origin">{t('researchLab.ideaOrigin')} · {draft.origin.selected_ids.length} {t('researchLab.savedDirections')}<br />{t('researchLab.originNotice')}</p>}
           {draft.importCoverage && <p className={draft.importCoverage.complete ? 'idea-lab-note' : 'research-lab-warning'}>{t('researchLab.importCoverage', { imported: draft.importCoverage.imported_sources, referenced: draft.importCoverage.referenced_sources })}{!draft.importCoverage.complete && <> {t('researchLab.importSubset')}</>}</p>}
@@ -178,5 +199,6 @@ export function ResearchLab({ scope, onClose, initialIdeaId }: { scope: Workspac
         <details className="idea-lab-section"><summary>{t('researchLab.technical')}</summary><pre className="idea-lab-source-text">{JSON.stringify({ adapter: campaign.adapter, origin: campaign.origin, budget: campaign.budget, stop_reason: campaign.stop_reason, events: campaign.events }, null, 2)}</pre></details>
       </>}
     </main></div>
+    <ResearchTrashDialog goal={deleteTarget?.brief.goal ?? null} busy={busy} error={error} onCancel={() => setDeleteTarget(null)} onConfirm={() => { if (deleteTarget) void setDeleted(deleteTarget) }} />
   </div>
 }

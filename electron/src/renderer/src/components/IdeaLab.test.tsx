@@ -35,6 +35,8 @@ beforeEach(() => {
   localStorage.clear()
   setLocale('en')
   api = {
+    trash: vi.fn().mockResolvedValue({ ...complete, revision: 6, deleted_at: '2026-10-04T13:00:00Z' }),
+    restore: vi.fn().mockResolvedValue({ ...complete, revision: 7, deleted_at: null }),
     list: vi.fn().mockResolvedValue({ items: [], has_more: false }), get: vi.fn().mockResolvedValue(complete),
     saveOriginal: vi.fn(),
     paper: vi.fn().mockResolvedValue({ source: { id: 'source-one', title: 'Frozen source', uri: 'https://example.org/paper', text: 'Missing context from the frozen earlier version.' }, paper: null, revision: 3, archived: true, generation_id: complete.generation_id }),
@@ -50,10 +52,62 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.useRealTimers() })
 
 describe('Idea Lab user workflow', () => {
+  it('confirms deletion, removes the opened research, and restores it from Trash', async () => {
+    let deleted = false
+    vi.mocked(api.list).mockImplementation(async (_scope, trash) => ({ items: Boolean(trash) === deleted ? [deleted ? { ...complete, revision: 6, deleted_at: '2026-10-04T13:00:00Z' } : complete] : [], has_more: false }))
+    vi.mocked(api.trash).mockImplementation(async () => { deleted = true; return { ...complete, revision: 6, deleted_at: '2026-10-04T13:00:00Z' } })
+    vi.mocked(api.restore).mockImplementation(async () => { deleted = false; return { ...complete, revision: 7, deleted_at: null } })
+    render(<IdeaLab scope={scope} onClose={() => {}} />)
+    fireEvent.click(await screen.findByRole('button', { name: /^Which evidence should we collect/ }))
+    await waitFor(() => expect(screen.getByRole('button', { name: /^Delete research:/ })).toBeEnabled())
+    fireEvent.click(screen.getByRole('button', { name: /^Delete research:/ }))
+    expect(screen.getByRole('dialog', { name: 'Delete research?' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(api.trash).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: /^Delete research:/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Move to Trash' }))
+    await waitFor(() => expect(screen.queryByRole('button', { name: /^Which evidence should we collect/ })).not.toBeInTheDocument())
+    expect(api.trash).toHaveBeenCalledWith(scope, complete.id, { expected_revision: complete.revision })
+    fireEvent.click(screen.getByRole('button', { name: 'Trash' }))
+    fireEvent.click(await screen.findByRole('button', { name: /^Restore research:/ }))
+    await screen.findByText('Trash is empty.')
+    fireEvent.click(screen.getByRole('button', { name: 'Active research' }))
+    expect(await screen.findByRole('button', { name: /^Which evidence should we collect/ })).toBeInTheDocument()
+    expect(api.generate).not.toHaveBeenCalled()
+  })
+  it('shows a failed restore in Trash and leaves the saved item available to retry', async () => {
+    const deleted = { ...complete, revision: 6, deleted_at: '2026-10-04T13:00:00Z' }
+    vi.mocked(api.list).mockImplementation(async (_scope, trash) => ({ items: trash ? [deleted] : [], has_more: false }))
+    vi.mocked(api.restore).mockRejectedValueOnce(new Error('Connection interrupted; restore was not confirmed.'))
+    render(<IdeaLab scope={scope} onClose={() => {}} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Trash' }))
+    fireEvent.click(await screen.findByRole('button', { name: /^Restore research:/ }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Connection interrupted; restore was not confirmed.')
+    expect(screen.getByRole('button', { name: /^Restore research:/ })).toBeEnabled()
+    expect(api.trash).not.toHaveBeenCalled()
+    expect(api.generate).not.toHaveBeenCalled()
+  })
+  it('keeps failed deletion reviewable and ignores its response after a server change', async () => {
+    vi.mocked(api.list).mockResolvedValue({ items: [complete], has_more: false })
+    vi.mocked(api.trash).mockRejectedValueOnce(new Error('The research changed; refresh before deleting it.'))
+    const view = render(<IdeaLab scope={scope} onClose={() => {}} />)
+    fireEvent.click(await screen.findByRole('button', { name: /^Delete research:/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Move to Trash' }))
+    await screen.findAllByText('The research changed; refresh before deleting it.')
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    let finish!: (value: IdeaSession) => void
+    vi.mocked(api.trash).mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    fireEvent.click(screen.getByRole('button', { name: 'Move to Trash' }))
+    await waitFor(() => expect(api.trash).toHaveBeenCalledTimes(2))
+    view.rerender(<IdeaLab scope={{ ...scope, serverIdentity: 'other-server' }} onClose={() => {}} />)
+    await act(async () => finish({ ...complete, deleted_at: '2026-10-04T13:00:00Z' }))
+    expect(await screen.findByRole('button', { name: /^Which evidence should we collect/ })).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
   it('keeps direction tradeoffs and long reviewer critiques collapsed while preserving citations', async () => {
     vi.mocked(api.list).mockResolvedValue({ items: [complete], has_more: false })
     render(<IdeaLab scope={scope} onClose={() => {}} />)
-    fireEvent.click(await screen.findByRole('button', { name: /Which evidence should we collect/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /^Which evidence should we collect/ }))
     await screen.findAllByText('Evidence and tradeoffs')
     expect(screen.getAllByText('Evidence and tradeoffs').every(node => !node.closest('details')?.open)).toBe(true)
     expect(screen.getByText('Check labels')).not.toBeVisible()
@@ -80,7 +134,7 @@ describe('Idea Lab user workflow', () => {
   it('shows evidence/critique and saves actual selection, feedback, revision and history', async () => {
     vi.mocked(api.list).mockResolvedValue({ items: [complete], has_more: false })
     render(<IdeaLab scope={scope} onClose={() => {}} />)
-    fireEvent.click(await screen.findByRole('button', { name: /Which evidence should we collect/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /^Which evidence should we collect/ }))
     await screen.findAllByText('Expert validation missing')
     expect(screen.getByText('Check labels')).toBeInTheDocument()
     expect(screen.getByText(/Only the six pilot cases/)).toBeInTheDocument(); expect(screen.getByText('Labels are reliable')).toBeInTheDocument()
@@ -96,7 +150,7 @@ describe('Idea Lab user workflow', () => {
     const external = { ...draft, status: 'running' as const, generation_id: 'elsewhere', phase: 'review' as const }
     vi.mocked(api.list).mockResolvedValue({ items: [external], has_more: false }); vi.mocked(api.get).mockResolvedValue(external)
     render(<IdeaLab scope={scope} onClose={() => {}} />)
-    const open = await screen.findByRole('button', { name: /Which evidence should we collect/ })
+    const open = await screen.findByRole('button', { name: /^Which evidence should we collect/ })
     expect(api.get).not.toHaveBeenCalled(); expect(api.cancel).not.toHaveBeenCalled()
     fireEvent.click(open)
     await screen.findByRole('button', { name: 'Stop this generation' })
@@ -110,14 +164,14 @@ describe('Idea Lab user workflow', () => {
     const view = render(<IdeaLab scope={scope} onClose={() => {}} />)
     view.rerender(<IdeaLab scope={{ ...scope, profileId: 'other', profileGeneration: 2, serverIdentity: 'other-server' }} onClose={() => {}} />)
     await act(async () => { resolveOld({ items: [complete], has_more: false }) })
-    expect(screen.queryByRole('button', { name: /Which evidence should we collect/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Which evidence should we collect/ })).not.toBeInTheDocument()
   })
 
   it('keeps partial evidence visible when generation fails', async () => {
     const partial = { ...complete, status: 'failed' as const, error: 'Review provider unavailable', result: { literature: complete.result!.literature, ideas: null, review: null } }
     vi.mocked(api.list).mockResolvedValue({ items: [partial], has_more: false }); vi.mocked(api.get).mockResolvedValue(partial)
     render(<IdeaLab scope={scope} onClose={() => {}} />)
-    fireEvent.click(await screen.findByRole('button', { name: /Which evidence should we collect/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /^Which evidence should we collect/ }))
     await screen.findByText('Review provider unavailable')
     expect(screen.getAllByText('Expert validation missing').length).toBeGreaterThan(0)
     expect(screen.getByRole('button', { name: 'Start literature research' })).toBeEnabled()
@@ -137,7 +191,7 @@ describe('Idea Lab user workflow', () => {
     vi.mocked(api.list).mockResolvedValue({ items: [run], has_more: false })
     vi.mocked(api.get).mockResolvedValueOnce(run).mockResolvedValue({ ...run, generation_id: 'replacement-run', revision: 9 })
     render(<IdeaLab scope={scope} onClose={() => {}} />)
-    fireEvent.click(await screen.findByRole('button', { name: /Which evidence should we collect/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /^Which evidence should we collect/ }))
     fireEvent.click(await screen.findByRole('button', { name: 'Stop this generation' }))
     await screen.findByText(/This saved group is running elsewhere/)
     expect(api.cancel).not.toHaveBeenCalled()
@@ -145,14 +199,14 @@ describe('Idea Lab user workflow', () => {
   it('distinguishes completed legacy output from researched readiness and exposes real source context', async () => {
     vi.mocked(api.list).mockResolvedValue({ items: [complete], has_more: false })
     const view = render(<IdeaLab scope={scope} onClose={() => {}} />)
-    fireEvent.click(await screen.findByRole('button', { name: /Which evidence should we collect/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /^Which evidence should we collect/ }))
     await screen.findByRole('heading', { name: 'Earlier result · literature search not performed' })
     expect(screen.queryByRole('heading', { name: 'Evidence is ready for a direction choice' })).not.toBeInTheDocument()
     view.unmount()
     const item = { ...complete, research: researched }
     vi.mocked(api.list).mockResolvedValue({ items: [item], has_more: false }); vi.mocked(api.get).mockResolvedValue(item)
     render(<IdeaLab scope={scope} onClose={() => {}} />)
-    fireEvent.click(await screen.findByRole('button', { name: /Which evidence should we collect/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /^Which evidence should we collect/ }))
     await screen.findByRole('heading', { name: 'More evidence is needed' })
     expect(screen.getByText('Full methods remain unavailable.')).toBeInTheDocument()
     expect(screen.getByText('context omissions review methods')).toBeInTheDocument()
@@ -167,7 +221,7 @@ describe('Idea Lab user workflow', () => {
     const item = { ...complete, status: 'needs_input' as const, research: researched }
     vi.mocked(api.list).mockResolvedValue({ items: [item], has_more: false }); vi.mocked(api.get).mockResolvedValue(item)
     render(<IdeaLab scope={scope} onClose={() => {}} />)
-    fireEvent.click(await screen.findByRole('button', { name: /Which evidence should we collect/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /^Which evidence should we collect/ }))
     const continueButton = await screen.findByRole('button', { name: 'Search and read more' })
     expect(continueButton).toBeDisabled(); expect(api.followup).not.toHaveBeenCalled()
     fireEvent.change(screen.getByLabelText(/Which population matters/), { target: { value: 'Early-career researchers; keep this exact wording.' } })
@@ -183,7 +237,7 @@ describe('Idea Lab user workflow', () => {
     vi.mocked(api.list).mockResolvedValue({ items: [item], has_more: false }); vi.mocked(api.get).mockResolvedValue(item)
     vi.mocked(api.followup).mockRejectedValueOnce(new Error('Connection interrupted'))
     render(<IdeaLab scope={scope} onClose={() => {}} />)
-    fireEvent.click(await screen.findByRole('button', { name: /Which evidence should we collect/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /^Which evidence should we collect/ }))
     fireEvent.change(await screen.findByLabelText('Your feedback and follow-up request'), { target: { value: 'Read missing methods.' } })
     fireEvent.click(screen.getByRole('button', { name: 'Search and read more' }))
     await screen.findByText('Connection interrupted')
@@ -196,7 +250,7 @@ describe('Idea Lab user workflow', () => {
   it('combines checked directions only with an explicit resulting goal and retains actual feedback', async () => {
     vi.mocked(api.list).mockResolvedValue({ items: [complete], has_more: false })
     render(<IdeaLab scope={scope} onClose={() => {}} />)
-    fireEvent.click(await screen.findByRole('button', { name: /Which evidence should we collect/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /^Which evidence should we collect/ }))
     const combine = await screen.findByRole('button', { name: 'Combine checked directions' })
     expect(combine).toBeDisabled()
     for (const checkbox of screen.getAllByRole('checkbox')) fireEvent.click(checkbox)
@@ -223,7 +277,7 @@ describe('Idea Lab user workflow', () => {
     vi.mocked(api.list).mockResolvedValue({ items: [run], has_more: false }); vi.mocked(api.get).mockResolvedValue(run)
     render(<IdeaLab scope={scope} onClose={() => {}} />)
     expect(screen.getByLabelText('Research goal')).toBeVisible()
-    fireEvent.click(await screen.findByRole('button', { name: /Which evidence should we collect/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /^Which evidence should we collect/ }))
     const expand = await screen.findByRole('button', { name: 'Show brief details' })
     expect(expand).toHaveAttribute('aria-expanded', 'false')
     expect(screen.getByLabelText('Research goal')).not.toBeVisible()
@@ -241,13 +295,13 @@ describe('Idea Lab user workflow', () => {
     const old = { ...complete, status: 'needs_input' as const, research: researched }
     vi.mocked(api.list).mockResolvedValue({ items: [old], has_more: false }); vi.mocked(api.get).mockResolvedValue(old)
     const view = render(<IdeaLab scope={scope} onClose={() => {}} />)
-    fireEvent.click(await screen.findByRole('button', { name: /Which evidence should we collect/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /^Which evidence should we collect/ }))
     fireEvent.change(await screen.findByLabelText(/Which population matters/), { target: { value: 'Researchers' } })
     view.unmount()
     const changed = { ...old, generation_id: 'new-generation', research: { ...researched, questions: [{ ...researched.questions[0], question: 'Which outcome matters?' }] } }
     vi.mocked(api.list).mockResolvedValue({ items: [changed], has_more: false }); vi.mocked(api.get).mockResolvedValue(changed)
     render(<IdeaLab scope={scope} onClose={() => {}} />)
-    fireEvent.click(await screen.findByRole('button', { name: /Which evidence should we collect/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /^Which evidence should we collect/ }))
     expect(await screen.findByLabelText(/Which outcome matters/)).toHaveValue('')
     expect(screen.getByRole('button', { name: 'Search and read more' })).toBeDisabled()
     expect(api.followup).not.toHaveBeenCalled()
@@ -256,7 +310,7 @@ describe('Idea Lab user workflow', () => {
   it('loads a historical frozen source only on explicit request and keeps the saved evidence inspectable', async () => {
     vi.mocked(api.list).mockResolvedValue({ items: [complete], has_more: false })
     render(<IdeaLab scope={scope} onClose={() => {}} />)
-    fireEvent.click(await screen.findByRole('button', { name: /Which evidence should we collect/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /^Which evidence should we collect/ }))
     fireEvent.click(await screen.findByRole('button', { name: 'Previous versions and decisions' }))
     const version = await screen.findByText(/Version 5 · Which evidence/)
     expect(api.paper).not.toHaveBeenCalled()
@@ -281,7 +335,7 @@ describe('Idea Lab user workflow', () => {
     vi.mocked(api.paper).mockImplementation(() => new Promise(resolve => { resolvePaper = resolve }))
     vi.mocked(api.list).mockResolvedValue({ items: [complete], has_more: false })
     const view = render(<IdeaLab scope={scope} onClose={() => {}} />)
-    fireEvent.click(await screen.findByRole('button', { name: /Which evidence should we collect/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /^Which evidence should we collect/ }))
     fireEvent.click((await screen.findAllByRole('button', { name: 'E1' }))[0])
     fireEvent.click(screen.getByRole('button', { name: 'Read the source text used for this evidence' }))
     await waitFor(() => expect(api.paper).toHaveBeenCalledOnce())

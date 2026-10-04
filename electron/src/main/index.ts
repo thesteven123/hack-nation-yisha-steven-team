@@ -116,6 +116,8 @@ if (!app.requestSingleInstanceLock()) {
           if (!window.isDestroyed()) window.webContents.send('app:language', snapshot)
         }
       })
+      // This explicitly isolated competition app presents its pages in English.
+      if (ideaDevProfile) language.set('en')
       appLog('main', 'application ready', { version: app.getVersion(), electron: process.versions.electron })
       appLog('main', 'constructing app service')
       service = new AppService({

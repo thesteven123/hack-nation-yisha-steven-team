@@ -33,6 +33,7 @@ export interface IdeaDecisionInput {
   expected_revision: number; kind: 'select' | 'revise' | 'defer' | 'reject' | 'combine'; selected_id: string | null; feedback: string; selected_ids?: string[]; goal?: string; answers?: IdeaAnswer[]
 }
 export interface IdeaSession {
+  deleted_at?: string | null
   id: string; revision: number; created_at: string; updated_at: string; brief: IdeaBrief
   status: 'draft' | 'running' | 'completed' | 'failed' | 'cancelled' | 'interrupted' | 'needs_input'
   phase: 'searching' | 'reading' | 'literature' | 'ideas' | 'review' | null; generation_id: string | null
@@ -50,7 +51,9 @@ export interface IdeaGenerateInput { idempotency_key: string; expected_revision:
 export interface IdeaOriginalUnavailable { status: 'not_retained' | 'missing' | 'corrupt'; session_id?: string; source_id?: string; source_hash?: string; generation_id?: string; provenance_hash?: string }
 export type IdeaOriginalSaveResult = IdeaOriginalUnavailable | { status: 'saved'; path: string; session_id: string; source_id: string; source_hash: string; generation_id: string; provenance_hash: string; content_hash: string; bytes: number; fetch_id: string }
 export interface IdeaLabAPI {
-  list(scope: WorkspaceProfileScope): Promise<IdeaPage>
+  list(scope: WorkspaceProfileScope, trashed?: boolean): Promise<IdeaPage>
+  trash(scope: WorkspaceProfileScope, id: string, input: { expected_revision: number }): Promise<IdeaSession>
+  restore(scope: WorkspaceProfileScope, id: string, input: { expected_revision: number }): Promise<IdeaSession>
   get(scope: WorkspaceProfileScope, id: string): Promise<IdeaSession>
   paper(scope: WorkspaceProfileScope, id: string, sourceId: string, sourceHash?: string, generationId?: string): Promise<IdeaPaperResult>
   saveOriginal(scope: WorkspaceProfileScope, id: string, sourceId: string, sourceHash: string, generationId: string, provenanceHash: string): Promise<IdeaOriginalSaveResult | null>
@@ -87,6 +90,7 @@ function rows(value: unknown): Record<string, any>[] {
 /** Parse returned data before it enters native UI state; never execute source text. */
 export function parseIdeaSession(value: unknown): IdeaSession {
   const row = object(value)
+  if (row.deleted_at !== undefined && row.deleted_at !== null && (typeof row.deleted_at !== 'string' || !row.deleted_at)) throw new Error('Invalid Idea Lab trash state.')
   ideaSessionId(row.id)
   if (!Number.isSafeInteger(row.revision) || row.revision < 0
     || !['draft', 'running', 'completed', 'failed', 'cancelled', 'interrupted', 'needs_input'].includes(row.status)

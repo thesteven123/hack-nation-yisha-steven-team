@@ -4865,3 +4865,30 @@ and the original remained unchanged. This is a source fix, not a published beta.
   launcher was also corrected and exercised through a real idle dev-server
   restart, preserving all 7 Idea/7 campaign/7 model-job payloads. Full independent
   post-patch review remains pending. See [acceptance scope](AI_LAB_ACCEPTANCE.md).
+
+## 2026-10-04 — English competition profile and reversible research deletion
+
+- The isolated AI Lab development profile opens in English. New Literature,
+  Idea and research-role prose is requested in English, preserving original
+  source titles, exact quotations and previously saved results. The quick start
+  and acceptance guide are now English.
+- Both workspaces provide a named delete confirmation, Cancel, a separate
+  Trash list and Restore. Research is removed from active work without erasing
+  evidence, results, links or immutable receipts. Running generations/native
+  roles block deletion; new model work and stale creation/run replays cannot
+  reopen a trashed campaign. Restore errors remain visible and retryable.
+- Source/build: dedicated AI Lab branch, production Electron compile and
+  compiled-entry verification. Focused validation: 81 client and 113 backend
+  tests passed; TypeScript checking passed. This count includes isolated real
+  stores/routes and component/transport fixtures, not independent UI checks.
+- Actual isolated native app: English menus/workspaces; named confirmation and
+  Cancel; campaign Restore through the real authenticated client/server path.
+  One real Planner on a Chinese synthetic objective returned English prose with
+  the exact Chinese quotation preserved (4,607 reported tokens). No scientific
+  action ran. An idle development restart preserved all 24 saved payloads;
+  all 21 original records remained identical. Installed app identity was intact.
+- Remaining acceptance: the final native Move to Trash click awaits action-time
+  confirmation; authenticated API and component deletion checks do not substitute
+  for that click. Full v0.5 and the limitations in the acceptance guide remain
+  PARTIAL. This is source and an isolated local build, not an installed-app update
+  or a public release package.

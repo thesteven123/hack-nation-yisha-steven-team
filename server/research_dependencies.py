@@ -528,8 +528,11 @@ class ResearchDependencies:
         _text(campaign_id); _revision(request["expected_revision"]); _text(request["idempotency_key"])
         _json(request)
         with _read(self.lab_path) as db:
-            if not db.execute("SELECT 1 FROM campaigns WHERE id=?", (campaign_id,)).fetchone():
+            row = db.execute("SELECT json_extract(payload,'$.deleted_at') FROM campaigns WHERE id=?", (campaign_id,)).fetchone()
+            if row is None:
                 raise LabError("not_found", "Campaign was not found")
+            if row[0]:
+                raise LabError("deleted", "This research is in Trash. Restore it before opening or continuing it.")
             result, _ = ResearchLabStore._replay(db, campaign_id, request["idempotency_key"], {"operation": event, **request})
             # Match the core's bounded public replay projection while preserving
             # the original immutable response in its database.

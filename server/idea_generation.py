@@ -57,7 +57,9 @@ delegate, run experiments, or spend resources beyond this one generation request
 Never invent sources, citations, quotations, measurements, or completed experiments.
 An exact source quotation is reported evidence, not proof that its inference is valid.
 Generation and human selection do not authorize experiment execution.
-Respond in the user's goal language; use Chinese when the goal is Chinese.
+Write all summaries, findings, ideas, reviews and human-facing questions in English.
+Understand objectives in any language. Preserve exact source quotations and titles
+in their original language; never translate or normalize an evidence quotation.
 Return one JSON object matching the supplied output schema, with no markdown.
 """
 STAGE_INSTRUCTIONS = {
