@@ -1,3 +1,58 @@
+# AI Lab - Human-guided scientific research
+
+AI Lab connects literature evidence, candidate research directions, human decisions, bounded analyses, and review in an inspectable workspace.
+
+**Team:** Yisha Tang and Steven Milligan-Villegas, University of California, Berkeley. We developed the idea together and separately experimented with different agent platforms.
+
+## Try the browser companion
+
+**Public working demo:** https://ai-lab-research-yisha-steven.xlyzx.chatgpt.site
+
+The companion provides two functioning local tools: exact quotation checks against supplied sources and analysis of paired numerical data. It preserves input hashes and exports JSON records. The examples are synthetic. Exact occurrence does not establish scientific truth; leave-one-out sensitivity does not establish replication.
+
+The browser companion does not run the desktop Literature Agent, Idea Agent, or native Codex model jobs. Those workflows require the desktop client, an independent service, and provider setup.
+
+To run this companion locally, serve the repository with `python -m http.server 8000` and open `http://localhost:8000/browser-demo.html`. It makes no model calls and sends no input data to a backend. HTTPS or localhost enables input hashing.
+
+## Desktop research workflow
+
+The prototype extends the open-source AgentsDock platform:
+
+1. A Literature Agent retrieves sources and records evidence quotations and reading coverage.
+2. An Idea Agent compares research directions; a separate review context can request evidence.
+3. The researcher chooses, combines, revises, or defers a direction.
+4. A research workspace preserves chosen inputs, bounded analysis results, limitations, and separately recorded Planner/Analyst/Reviewer model jobs.
+
+Implemented analysis families are quotation checks in supplied sources and paired numerical analysis. Local workflow records do not establish scientific effectiveness.
+
+## Source and setup
+
+- `electron/`: Electron, React, and TypeScript client; dependencies and lockfile are inside this package.
+- `server/`: Python service and SQLite research records; Python environment and server installation instructions are self-contained here.
+- `browser-demo.html`: the limited standalone companion's full source.
+- Synthetic paired values and quotation examples are embedded in `browser-demo.html`.
+- `docs/AI_LAB_QUICKSTART.md` and `docs/AI_LAB_ACCEPTANCE.md`: development startup notes and verified acceptance scope.
+- Original platform documentation and distribution links are preserved below.
+
+Desktop source development uses Node.js 24 and the pinned pnpm 11.9.0. In `electron/`, run `pnpm install --frozen-lockfile`, then `pnpm dev`. A separate running AgentsServer is required; follow `server/README.md` for its installation and authenticate native Codex on the server. Windows uses a separate WSL service; `Start-AILab.cmd` is the development entry point described in the quickstart, not a portable standalone installer.
+
+Use **Settings > General > Language > English** for English interface labels. Historical user inputs and model outputs retain their original language.
+
+## What is limited today
+
+Literature coverage is bounded. Document extraction is text-based and does not cover scanned pages, figures, or equation layout. The analysis adapters are limited; arbitrary scientific experiments and a portable desktop release remain future work. The complete v0.5 milestone has not been accepted.
+
+## Attribution and licenses
+
+The desktop and server foundation is [AgentsDock](https://github.com/ZhengyiLuo/AgentsDock), licensed under Apache-2.0 except for separately licensed components. Its `LICENSE`, `NOTICE`, and third-party notices remain intact. Our project contribution is the research workflow and bounded browser companion; we do not claim authorship of the entire underlying platform.
+
+This English submission branch was prepared from the team's public AI Lab development snapshot `97c80cfd6c6b175a8843027ca3f674404b199313`; the original main and development branches are preserved.
+
+
+---
+
+## Original platform documentation
+
 **AI Lab 独立开发分支**
 
 这是队伍的独立 AI Lab 开发分支，已提供有限工作流；完整 v0.5 尚未验收。
