@@ -1,5 +1,6 @@
 """Frozen original identity, ambiguity and truly readonly packet routes."""
 import base64
+import copy
 import hashlib
 import json
 from pathlib import Path
@@ -56,6 +57,71 @@ class SourceViewTests(unittest.IsolatedAsyncioTestCase):
     def url(self,source,raw=False):
         return '/api/research/ideas/'+self.item['id']+'/papers/'+source['id']+('/raw' if raw else '')
 
+    async def same_fetch_projection(self):
+        original,identity=await self.reading('same-fetch')
+        projected=copy.deepcopy(original)
+        projected['provenance'].update(cache_hit=True,cache_freshness_seconds=123,
+            discovery={'query':'additional cached discovery'},retrieved_at='2026-10-04T01:00:00Z')
+        self.store.retrieval(self.item['id'],self.item['generation_id'],
+            {'sources':[projected],'papers':[],'coverage_gaps':[]})
+        self.store.freeze_packet(self.item['id'],self.item['generation_id'],'ideas',[projected],{})
+        self.finish()
+        return original,identity,projected,{**identity,'provenance_hash':provenance_hash(projected)}
+
+    async def test_explicit_generation_resolves_same_fetch_cache_projections_without_mutation(self):
+        original,old_identity,projected,new_identity=await self.same_fetch_projection()
+        self.assertNotEqual(old_identity['provenance_hash'],new_identity['provenance_hash'])
+        self.assertEqual(original['provenance']['raw_document'],projected['provenance']['raw_document'])
+        with sqlite3.connect(self.store.path) as db:
+            before='\n'.join(db.iterdump())
+        packet=await self.client.get(self.url(original),params={k:v for k,v in new_identity.items() if k!='provenance_hash'})
+        self.assertEqual(packet.status_code,200,packet.text)
+        self.assertEqual(packet.json()['source'],projected)
+        self.assertEqual(packet.json()['provenance_hash'],new_identity['provenance_hash'])
+        for identity,source in ((old_identity,original),(new_identity,projected)):
+            exact=await self.client.get(self.url(original),params=identity)
+            self.assertEqual(exact.status_code,200,exact.text)
+            self.assertEqual(exact.json()['source'],source)
+            raw=(await self.client.get(self.url(original,True),params=identity)).json()
+            self.assertEqual(raw['status'],'retained')
+            self.assertEqual(raw['provenance_hash'],identity['provenance_hash'])
+            self.assertEqual(base64.b64decode(raw['body_base64']),BODY)
+        with sqlite3.connect(self.store.path) as db:
+            self.assertEqual('\n'.join(db.iterdump()),before)
+
+    async def test_unbound_same_fetch_projections_still_require_identity(self):
+        original,identity,projected,new_identity=await self.same_fetch_projection()
+        query={'source_hash':identity['source_hash']}
+        packet=await self.client.get(self.url(original),params=query)
+        self.assertEqual(packet.status_code,409,packet.text)
+        raw=(await self.client.get(self.url(original,True),params=query)).json()
+        self.assertEqual(raw['status'],'not_retained')
+        self.assertEqual(raw['reason'],'ambiguous_original_reference')
+        self.assertNotIn('body_base64',raw)
+
+    async def test_same_generation_missing_original_does_not_acquire_retained_fetch(self):
+        old,old_identity=await self.reading('old-missing',False)
+        missing=copy.deepcopy(old)
+        missing['provenance'].pop('raw_document')
+        self.store.freeze_packet(self.item['id'],self.item['generation_id'],'review',[missing],{})
+        new,new_identity=await self.reading('new-retained',same_generation=True)
+        self.finish()
+        packet=await self.client.get(self.url(old),params={k:v for k,v in old_identity.items() if k!='provenance_hash'})
+        self.assertEqual(packet.status_code,409,packet.text)
+        for source,identity,status in ((old,old_identity,'not_retained'),(new,new_identity,'retained')):
+            raw=(await self.client.get(self.url(source,True),params=identity)).json()
+            self.assertEqual(raw['status'],status)
+            self.assertEqual(raw['provenance_hash'],identity['provenance_hash'])
+
+    async def test_same_fetch_with_changed_core_identity_still_blocks(self):
+        original,identity=await self.reading('core-identity')
+        changed=copy.deepcopy(original)
+        changed['provenance']['requested_url']='https://example.org/different-origin'
+        self.store.freeze_packet(self.item['id'],self.item['generation_id'],'ideas',[changed],{})
+        self.finish()
+        packet=await self.client.get(self.url(original),params={k:v for k,v in identity.items() if k!='provenance_hash'})
+        self.assertEqual(packet.status_code,409,packet.text)
+
     async def test_new_fetch_does_not_change_old_exact_receipt_and_new_one_downloads(self):
         old,old_identity=await self.reading('old',False); self.finish()
         new,new_identity=await self.reading('new'); self.finish()
@@ -78,6 +144,7 @@ class SourceViewTests(unittest.IsolatedAsyncioTestCase):
         b,identity_b=await self.reading('second',same_generation=True); self.finish()
         self.assertEqual(identity_a['source_hash'],identity_b['source_hash'])
         self.assertNotEqual(identity_a['provenance_hash'],identity_b['provenance_hash'])
+        self.assertNotEqual(a['provenance']['raw_document']['fetch_id'],b['provenance']['raw_document']['fetch_id'])
         response=await self.client.get(self.url(a),params={k:v for k,v in identity_a.items() if k!='provenance_hash'})
         self.assertEqual(response.status_code,409)
         for identity in (identity_a,identity_b):

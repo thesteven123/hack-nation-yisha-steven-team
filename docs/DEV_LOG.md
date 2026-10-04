@@ -4859,4 +4859,9 @@ and the original remained unchanged. This is a source fix, not a published beta.
   admission, general external scientific execution and scientific performance
   evaluation remain incomplete. Candidate-5 exact original-file UI read found
   a same-text provenance ambiguity; its failure is preserved separately from
-  older successful save/cancel evidence. See [acceptance scope](AI_LAB_ACCEPTANCE.md).
+  older successful save/cancel evidence. The final same-fetch patch passes 390
+  integrated backend tests and a new native exact-version HTML save/cancel check;
+  distinct fetches and missing-original upgrades remain rejected. The source
+  launcher was also corrected and exercised through a real idle dev-server
+  restart, preserving all 7 Idea/7 campaign/7 model-job payloads. Full independent
+  post-patch review remains pending. See [acceptance scope](AI_LAB_ACCEPTANCE.md).

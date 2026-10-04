@@ -15,6 +15,31 @@ def provenance_hash(source):
         separators=(',', ':'), allow_nan=False).encode('utf-8')).hexdigest()
 
 
+def _same_retained_fetch(matches):
+    """Only complete original-file identities can equate source projections."""
+    identities = []
+    for match in matches:
+        source = match['source']
+        provenance = source.get('provenance')
+        if not isinstance(provenance, dict):
+            return False
+        raw = provenance.get('raw_document')
+        if (not isinstance(raw, dict) or set(raw) != {'status', 'sha256', 'bytes', 'fetch_id', 'mime'}
+                or raw['status'] != 'retained'
+                or not isinstance(raw['fetch_id'], str) or not re.fullmatch(r'[0-9a-f]{32}', raw['fetch_id'])
+                or not isinstance(raw['sha256'], str) or not re.fullmatch(r'[0-9a-f]{64}', raw['sha256'])
+                or type(raw['bytes']) is not int or raw['bytes'] <= 0
+                or not isinstance(raw['mime'], str) or not raw['mime']):
+            return False
+        keys = ('content_hash', 'url', 'requested_url', 'source_version_id', 'parser_version')
+        if (not isinstance(source.get('uri'), str) or not source['uri']
+                or any(not isinstance(provenance.get(key), str) or not provenance[key] for key in keys)
+                or provenance['content_hash'] != raw['sha256']):
+            return False
+        identities.append((raw, source['uri'], {key: provenance[key] for key in keys}))
+    return bool(identities) and all(identity == identities[0] for identity in identities[1:])
+
+
 def source_packet(root, session_id, source_id, source_hash=None, *, generation_id=None, provenance_hash_value=None):
     if not isinstance(session_id, str) or not re.fullmatch(r'[0-9a-f]{32}', session_id):
         raise IdeaError('not_found', 'Idea session was not found')
@@ -95,7 +120,8 @@ def source_packet(root, session_id, source_id, source_hash=None, *, generation_i
                     consider(json.loads(row['source']),json.loads(row['data']))
             if not matches:
                 raise IdeaError('not_found', 'Exact source provenance was not found in this session and generation')
-            if source_hash is not None and len({m['provenance_hash'] for m in matches})>1:
+            if (source_hash is not None and len({m['provenance_hash'] for m in matches})>1
+                    and not (generation_id is not None and _same_retained_fetch(matches))):
                 raise IdeaError('ambiguous_source', 'This text hash has multiple original fetch identities; select exact saved provenance')
             return matches[0]
     except (sqlite3.Error, OSError, ValueError, KeyError, TypeError):

@@ -52,8 +52,8 @@ $ready = & $wsl -d $WslDistribution -u $WslUser --exec $ServerPython $helper sta
 if ($LASTEXITCODE -ne 0) {
     $logs = Join-Path $profile 'logs\server-start'
     New-Item -ItemType Directory -Force -Path $logs | Out-Null
-    # Start-Process joins arguments; quote each path/distribution containing spaces.
-    $serverArgs = @('-d', ('"' + $WslDistribution + '"'), '-u', ('"' + $WslUser + '"'), '--exec',
+    # Start-Process joins arguments; quote filesystem paths, keeping WSL selectors unquoted.
+    $serverArgs = @('-d', $WslDistribution, '-u', $WslUser, '--exec',
         ('"' + $ServerPython + '"'), ('"' + $helper + '"'), 'serve', '--root', ('"' + $ServerRoot + '"'))
     $server = Start-Process -FilePath $wsl -ArgumentList $serverArgs -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $logs 'server.stdout.log') -RedirectStandardError (Join-Path $logs 'server.stderr.log')
     $connected = $false
