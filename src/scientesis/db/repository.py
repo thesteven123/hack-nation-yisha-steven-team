@@ -6,6 +6,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+from scientesis.domain.models import ExperimentConfig
 from scientesis.services.decision_records import validate_decision_draft
 from scientesis.services.interpretations import validate_human_interpretation
 from scientesis.services.hypotheses import validate_hypothesis
@@ -250,7 +251,10 @@ class Repository:
         original_text: str,
         protocol: dict,
         project_id: str | None = None,
+        source: str = "human",
     ) -> str:
+        if source not in {"human", "deterministic_planner"}:
+            raise ValueError("Hypothesis source must be human or deterministic_planner.")
         project_id = project_id or self.get_project_id()
         normalized = validate_hypothesis(original_text, protocol)
         brief = self.get_active_brief(project_id)
@@ -258,8 +262,8 @@ class Repository:
         now = utc_now()
         with self.connect() as connection:
             connection.execute(
-                "INSERT INTO hypotheses (id, project_id, original_text, operationalized_protocol_json, brief_version, source, status, created_by, created_at) VALUES (?, ?, ?, ?, ?, 'human', 'draft', 'scientist', ?)",
-                (hypothesis_id, project_id, original_text.strip(), json_text(normalized), brief["version"], now),
+                "INSERT INTO hypotheses (id, project_id, original_text, operationalized_protocol_json, brief_version, source, status, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, 'draft', 'scientist', ?)",
+                (hypothesis_id, project_id, original_text.strip(), json_text(normalized), brief["version"], source, now),
             )
             self._audit(
                 connection,
@@ -268,7 +272,7 @@ class Repository:
                 hypothesis_id,
                 "created_draft",
                 "human",
-                {"brief_version": brief["version"], "original_text": original_text.strip()},
+                {"brief_version": brief["version"], "original_text": original_text.strip(), "source": source},
             )
         return hypothesis_id
 
@@ -322,6 +326,250 @@ class Repository:
                 {"note": note.strip() or None},
             )
 
+    def save_synthesis_draft(
+        self,
+        draft: dict,
+        snapshot_id: str,
+        model: str,
+        project_id: str | None = None,
+        project_root: str | Path | None = None,
+    ) -> dict:
+        from scientesis.services.synthesis import build_synthesis_context, validate_synthesis_draft
+
+        project_id = project_id or self.get_project_id()
+        if not isinstance(model, str) or not model.strip() or len(model.strip()) > 120:
+            raise ValueError("Synthesis model name must be 1–120 characters.")
+        root = project_root or PROJECT_ROOT
+        context = build_synthesis_context(self, project_id, snapshot_id, root)
+        normalized = validate_synthesis_draft(draft, context)
+        brief = context["research_brief"]
+        config = normalized["proposal"]["config"]
+        if set(config) != set(ExperimentConfig.__dataclass_fields__):
+            raise ValueError("Synthesis proposal config must contain exactly the supported fields.")
+        validate_config(config, brief)
+        protocol = validate_hypothesis(normalized["hypothesis"]["original_text"], normalized["hypothesis"]["protocol"])
+        now = utc_now()
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            current = self._get_active_brief(connection, project_id)
+            if current["version"] != brief["version"]:
+                raise ValueError("The ResearchBrief changed while saving; generate a fresh synthesis draft.")
+            self._validate_snapshot_link(connection, snapshot_id, project_id, current["version"])
+            snapshot_row = connection.execute(
+                "SELECT source_ids_json, experiment_ids_json, critic_report_ids_json, moss_document_ids_json FROM evidence_snapshots WHERE id = ?",
+                (snapshot_id,),
+            ).fetchone()
+            snapshot_fields = {
+                "source_ids": "source_ids_json",
+                "experiment_ids": "experiment_ids_json",
+                "critic_report_ids": "critic_report_ids_json",
+                "moss_document_ids": "moss_document_ids_json",
+            }
+            for field, column in snapshot_fields.items():
+                frozen_ids = set(json.loads(snapshot_row[column]))
+                if not set(normalized["evidence_references"][field]) <= frozen_ids:
+                    raise ValueError("Synthesis may cite selected snapshot references only.")
+            for evidence_id in normalized["evidence_references"]["source_ids"]:
+                source = connection.execute(
+                    "SELECT approval_status FROM evidence_cards WHERE id = ? AND project_id = ?",
+                    (evidence_id, project_id),
+                ).fetchone()
+                if source is None or source["approval_status"] != "approved":
+                    raise ValueError("Synthesis can cite only currently approved evidence cards.")
+            used = connection.execute(
+                "SELECT COUNT(*) AS total FROM experiment_runs WHERE project_id = ?", (project_id,)
+            ).fetchone()["total"]
+            if used >= current["experiment_budget"]:
+                raise ValueError("The active ResearchBrief experiment budget has been reached.")
+            duplicate = connection.execute(
+                "SELECT id FROM experiment_proposals WHERE project_id = ? AND research_brief_version = ? AND config_json = ? AND status IN ('proposed', 'reviewed', 'approved', 'queued') LIMIT 1",
+                (project_id, current["version"], json_text(config)),
+            ).fetchone()
+            if duplicate is not None:
+                raise ValueError("An equivalent proposal already exists for this ResearchBrief.")
+
+            hypothesis_id = new_id("HYP")
+            connection.execute(
+                "INSERT INTO hypotheses (id, project_id, original_text, operationalized_protocol_json, brief_version, source, status, created_by, created_at) VALUES (?, ?, ?, ?, ?, 'llm_synthesis', 'draft', 'scientist', ?)",
+                (
+                    hypothesis_id,
+                    project_id,
+                    normalized["hypothesis"]["original_text"],
+                    json_text(protocol),
+                    current["version"],
+                    now,
+                ),
+            )
+            proposal_id = new_id("PROP")
+            connection.execute(
+                "INSERT INTO experiment_proposals (id, project_id, evidence_snapshot_id, hypothesis_id, research_brief_version, config_json, status, proposed_by, created_at) VALUES (?, ?, ?, ?, ?, ?, 'proposed', 'llm_synthesis', ?)",
+                (
+                    proposal_id,
+                    project_id,
+                    snapshot_id,
+                    hypothesis_id,
+                    current["version"],
+                    json_text(config),
+                    now,
+                ),
+            )
+            synthesis_audit = {
+                "source": "llm_synthesis",
+                "model": model.strip(),
+                "research_brief_version": current["version"],
+                "evidence_snapshot_id": snapshot_id,
+                "evidence_references": normalized["evidence_references"],
+                "rationale": normalized["proposal"]["rationale"],
+                "limitations": normalized["limitations"],
+                "config": config,
+            }
+            self._audit(
+                connection,
+                project_id,
+                "hypothesis",
+                hypothesis_id,
+                "llm_synthesis_saved_as_draft",
+                "human",
+                {"model": model.strip(), "evidence_snapshot_id": snapshot_id, "limitations": normalized["limitations"]},
+            )
+            self._audit(
+                connection,
+                project_id,
+                "experiment_proposal",
+                proposal_id,
+                "llm_synthesis_saved_as_unapproved_proposal",
+                "human",
+                synthesis_audit,
+            )
+        return {"proposal_id": proposal_id, "hypothesis_id": hypothesis_id}
+
+    def save_planner_draft(
+        self,
+        plan: dict,
+        project_id: str | None = None,
+        evidence_snapshot_id: str | None = None,
+    ) -> dict:
+        allowed_actions = {
+            "establish_baseline",
+            "replicate_baseline",
+            "test_training_noise",
+            "replicate_training_noise",
+        }
+        if not isinstance(plan, dict) or plan.get("action") not in allowed_actions:
+            raise ValueError("Only a bounded experiment plan can be saved as a proposal draft.")
+        context = plan.get("context")
+        config = plan.get("config")
+        if not isinstance(context, dict) or not isinstance(config, dict):
+            raise ValueError("The planner result is missing its validated context or configuration.")
+        project_id = project_id or self.get_project_id()
+        if context.get("project_id") != project_id:
+            raise ValueError("The planner result belongs to another research project.")
+        brief = self.get_active_brief(project_id)
+        if context.get("research_brief_version") != brief["version"]:
+            raise ValueError("The ResearchBrief changed after planning; generate a fresh plan.")
+        validate_config(config, brief)
+        action = plan["action"]
+        reason = plan.get("reason")
+        if plan.get("status") != action:
+            raise ValueError("Planner status and action must agree.")
+        if not isinstance(reason, str) or not reason.strip() or len(reason.strip()) > 2000:
+            raise ValueError("Planner rationale must be non-empty and at most 2,000 characters.")
+        if action in {"establish_baseline", "replicate_baseline"} and config["noise_train"] != 0:
+            raise ValueError("A baseline planner draft must use zero training noise.")
+        expected_evaluation_noise = min((value for value in brief["allowed_noise_values"] if value > 0), default=0.0)
+        if config["noise_eval"] != expected_evaluation_noise or config["safety_penalty"] != 0:
+            raise ValueError("Planner drafts must keep the ResearchBrief's matched evaluation noise and zero-penalty control.")
+        if action in {"test_training_noise", "replicate_training_noise"}:
+            if config["noise_train"] <= 0:
+                raise ValueError("A training-noise planner draft must use a permitted nonzero intervention.")
+            if plan.get("hypothesis") is None:
+                raise ValueError("A training-noise proposal requires a draft operationalized hypothesis.")
+        if action in {"establish_baseline", "replicate_baseline"} and plan.get("hypothesis") is not None:
+            raise ValueError("Baseline planner drafts cannot attach an unrelated intervention hypothesis.")
+        if plan.get("hypothesis_id") is not None:
+            raise ValueError("Planner drafts may create a new hypothesis, not attach an unverified identifier.")
+        hypothesis = plan.get("hypothesis")
+        normalized_hypothesis = None
+        if hypothesis is not None:
+            if not isinstance(hypothesis, dict):
+                raise ValueError("The planner hypothesis must be an object.")
+            normalized_hypothesis = validate_hypothesis(
+                hypothesis.get("original_text"), hypothesis.get("protocol")
+            )
+            if config["noise_train"] <= 0:
+                raise ValueError("A planner hypothesis can only be linked to a nonzero training-noise proposal.")
+        now = utc_now()
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            current = self._get_active_brief(connection, project_id)
+            if current["version"] != brief["version"]:
+                raise ValueError("The ResearchBrief changed while saving; generate a fresh plan.")
+            validate_config(config, current)
+            self._validate_snapshot_link(connection, evidence_snapshot_id, project_id, current["version"])
+            used = connection.execute(
+                "SELECT COUNT(*) AS total FROM experiment_runs WHERE project_id = ?", (project_id,)
+            ).fetchone()["total"]
+            if used >= current["experiment_budget"]:
+                raise ValueError("The active ResearchBrief experiment budget has been reached.")
+            duplicate = connection.execute(
+                "SELECT id FROM experiment_proposals WHERE project_id = ? AND research_brief_version = ? AND config_json = ? AND status IN ('proposed', 'reviewed', 'approved', 'queued') LIMIT 1",
+                (project_id, current["version"], json_text(config)),
+            ).fetchone()
+            if duplicate is not None:
+                raise ValueError("An equivalent proposal already exists for this ResearchBrief.")
+            hypothesis_id = None
+            if normalized_hypothesis is not None:
+                hypothesis_id = new_id("HYP")
+                connection.execute(
+                    "INSERT INTO hypotheses (id, project_id, original_text, operationalized_protocol_json, brief_version, source, status, created_by, created_at) VALUES (?, ?, ?, ?, ?, 'deterministic_planner', 'draft', 'scientist', ?)",
+                    (
+                        hypothesis_id,
+                        project_id,
+                        hypothesis["original_text"].strip(),
+                        json_text(normalized_hypothesis),
+                        current["version"],
+                        now,
+                    ),
+                )
+                self._audit(
+                    connection,
+                    project_id,
+                    "hypothesis",
+                    hypothesis_id,
+                    "planner_draft_created",
+                    "human",
+                    {"brief_version": current["version"], "source": "deterministic_planner"},
+                )
+            proposal_id = new_id("PROP")
+            connection.execute(
+                "INSERT INTO experiment_proposals (id, project_id, evidence_snapshot_id, hypothesis_id, research_brief_version, config_json, status, proposed_by, created_at) VALUES (?, ?, ?, ?, ?, ?, 'proposed', 'deterministic_planner', ?)",
+                (
+                    proposal_id,
+                    project_id,
+                    evidence_snapshot_id,
+                    hypothesis_id,
+                    current["version"],
+                    json_text(config),
+                    now,
+                ),
+            )
+            self._audit(
+                connection,
+                project_id,
+                "experiment_proposal",
+                proposal_id,
+                "planner_draft_created",
+                "human",
+                {
+                    "action": plan["action"],
+                    "reason": str(plan.get("reason", ""))[:2000],
+                    "config": config,
+                    "hypothesis_id": hypothesis_id,
+                    "evidence_snapshot_id": evidence_snapshot_id,
+                },
+            )
+        return {"proposal_id": proposal_id, "hypothesis_id": hypothesis_id}
+
     def create_proposal(
         self,
         config: dict,
@@ -335,11 +583,11 @@ class Repository:
         with self.connect() as connection:
             if hypothesis_id is not None:
                 hypothesis = connection.execute(
-                    "SELECT id, brief_version FROM hypotheses WHERE id = ? AND project_id = ? AND status = 'approved'",
+                    "SELECT id, status, brief_version FROM hypotheses WHERE id = ? AND project_id = ?",
                     (hypothesis_id, project_id),
                 ).fetchone()
-                if hypothesis is None:
-                    raise ValueError("Only a scientist-approved hypothesis from this project can be linked.")
+                if hypothesis is None or hypothesis["status"] != "approved":
+                    raise ValueError("Only an approved hypothesis from this project can be linked to a proposal.")
                 if hypothesis["brief_version"] != brief["version"]:
                     raise ValueError("This hypothesis refers to an older ResearchBrief; create and approve a current one.")
             self._validate_snapshot_link(connection, evidence_snapshot_id, project_id, brief["version"])
@@ -365,14 +613,19 @@ class Repository:
         return proposal_id
 
     def approve_proposal(self, proposal_id: str, note: str = "") -> None:
-        proposal = self.get_proposal(proposal_id)
-        brief = self.get_active_brief(proposal["project_id"])
-        if proposal["status"] not in {"proposed", "reviewed"}:
-            raise ValueError("Only a proposed or reviewed experiment can be approved.")
-        if proposal["research_brief_version"] != brief["version"]:
-            raise ValueError("The ResearchBrief changed; create a fresh proposal before approving.")
-        validate_config(proposal["config"], brief)
         with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute("SELECT * FROM experiment_proposals WHERE id = ?", (proposal_id,)).fetchone()
+            if row is None:
+                raise KeyError(f"Unknown proposal: {proposal_id}")
+            proposal = self._decode_proposal(row)
+            brief = self._get_active_brief(connection, proposal["project_id"])
+            if proposal["status"] not in {"proposed", "reviewed"}:
+                raise ValueError("Only a proposed or reviewed experiment can be approved.")
+            if proposal["research_brief_version"] != brief["version"]:
+                raise ValueError("The ResearchBrief changed; create a fresh proposal before approving.")
+            validate_config(proposal["config"], brief)
+            self._require_approved_linked_hypothesis(connection, proposal, brief)
             connection.execute(
                 "UPDATE experiment_proposals SET status = 'approved', approval_scope_json = ?, approved_by = ?, approval_note = ?, approved_at = ? WHERE id = ?",
                 (json_text(proposal["config"]), "scientist", note, utc_now(), proposal_id),
@@ -384,7 +637,7 @@ class Repository:
                 proposal_id,
                 "explicitly_approved",
                 "human",
-                {"scope": proposal["config"], "note": note},
+                {"scope": proposal["config"], "hypothesis_id": proposal.get("hypothesis_id"), "note": note},
             )
 
     def reserve_run(self, proposal_id: str) -> str:
@@ -400,6 +653,7 @@ class Repository:
                 raise ValueError("Only a freshly approved proposal can reserve a run.")
             brief = self._get_active_brief(connection, proposal["project_id"])
             validate_execution_authorization(proposal, brief)
+            self._require_approved_linked_hypothesis(connection, proposal, brief)
             used = connection.execute(
                 "SELECT COUNT(*) AS total FROM experiment_runs WHERE project_id = ?",
                 (proposal["project_id"],),
@@ -440,6 +694,7 @@ class Repository:
             proposal = self._decode_proposal(proposal_row)
             brief = self._get_active_brief(connection, run_row["project_id"])
             validate_execution_authorization(proposal, brief)
+            self._require_approved_linked_hypothesis(connection, proposal, brief)
             now = utc_now()
             connection.execute(
                 "UPDATE experiment_runs SET status = 'running', started_at = ? WHERE id = ?",
@@ -859,6 +1114,20 @@ class Repository:
         if snapshot["research_brief_version"] != brief_version:
             raise ValueError("Evidence snapshot refers to a different ResearchBrief version.")
 
+    @staticmethod
+    def _require_approved_linked_hypothesis(connection, proposal: dict, brief: dict) -> None:
+        hypothesis_id = proposal.get("hypothesis_id")
+        if hypothesis_id is None:
+            return
+        hypothesis = connection.execute(
+            "SELECT status, brief_version FROM hypotheses WHERE id = ? AND project_id = ?",
+            (hypothesis_id, proposal["project_id"]),
+        ).fetchone()
+        if hypothesis is None or hypothesis["status"] != "approved":
+            raise ValueError("Review and approve the linked hypothesis before approving or starting this proposal.")
+        if hypothesis["brief_version"] != brief["version"]:
+            raise ValueError("The linked hypothesis refers to an older ResearchBrief and must be recreated.")
+
     def add_evidence_card(self, record: dict) -> None:
         required = {
             "id", "project_id", "title", "source_url", "source_type", "claim_text", "scope_text",
@@ -1095,6 +1364,53 @@ class Repository:
         with self.connect() as connection:
             rows = connection.execute(query, values).fetchall()
         return [dict(row) for row in rows]
+
+    def record_narration_artifact(self, manifest: dict, project_id: str) -> None:
+        if not isinstance(manifest, dict) or manifest.get("provider") != "elevenlabs":
+            raise ValueError("Narration must have explicit ElevenLabs provenance.")
+        summary = manifest.get("summary") or {}
+        state = summary.get("state") or {}
+        run_id = (state.get("run") or {}).get("id")
+        identifier = manifest.get("id")
+        if state.get("project_id") != project_id or not run_id or not isinstance(identifier, str) or not identifier.startswith("NARRATION-"):
+            raise ValueError("Narration must reference a completed run from this project.")
+        for field in ("audio_path", "text_path", "manifest_path"):
+            path = Path(manifest.get(field, ""))
+            if path.is_absolute() or ".." in path.parts or path.parts[:2] != ("artifacts", "audio"):
+                raise ValueError("Narration paths must remain in artifacts/audio.")
+        for field in ("audio_sha256", "text_sha256"):
+            digest = manifest.get(field)
+            if not isinstance(digest, str) or len(digest) != 64 or any(character not in "0123456789abcdef" for character in digest):
+                raise ValueError("Narration artifacts require SHA-256 integrity hashes.")
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            run = connection.execute(
+                "SELECT status FROM experiment_runs WHERE id = ? AND project_id = ?", (run_id, project_id)
+            ).fetchone()
+            if run is None or run["status"] != "completed":
+                raise ValueError("Narration must reference a completed run from this project.")
+            connection.execute(
+                "INSERT INTO artifacts (id, project_id, experiment_run_id, artifact_type, storage_uri, sha256, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (identifier, project_id, run_id, "narration_audio", manifest["audio_path"], manifest["audio_sha256"], json_text(manifest), summary["captured_at"]),
+            )
+            self._audit(connection, project_id, "narration", identifier, "audio_generated_from_captured_state", "human", {
+                "run_id": run_id, "fingerprint": summary["fingerprint"], "provider": "elevenlabs",
+                "audio_path": manifest["audio_path"], "audio_sha256": manifest["audio_sha256"],
+                "critic_report_id": (state.get("critic") or {}).get("id"),
+                "human_interpretation_id": (state.get("human_interpretation") or {}).get("id"),
+            })
+
+    def list_narration_artifacts(self, project_id: str | None = None, run_id: str | None = None) -> list[dict]:
+        project_id = project_id or self.get_project_id()
+        query = "SELECT metadata_json FROM artifacts WHERE project_id = ? AND artifact_type = 'narration_audio'"
+        values = [project_id]
+        if run_id is not None:
+            query += " AND experiment_run_id = ?"
+            values.append(run_id)
+        query += " ORDER BY created_at DESC, rowid DESC"
+        with self.connect() as connection:
+            rows = connection.execute(query, values).fetchall()
+        return [json.loads(row["metadata_json"]) for row in rows]
 
     def list_audit_events(self, project_id: str | None = None, limit: int = 100) -> list[dict]:
         project_id = project_id or self.get_project_id()

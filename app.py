@@ -15,7 +15,10 @@ from scientesis.ui.retrieval import render_retrieval_panel
 
 from scientesis.ui.decisions import render_decision_tab
 from scientesis.ui.interpretations import render_interpretation_tab_section
+from scientesis.ui.lab_director import render_lab_director_section
+from scientesis.ui.planner import render_planner_tab
 from scientesis.ui.research_targets import render_research_target_tab
+from scientesis.ui.synthesis import render_synthesis_tab
 
 
 st.set_page_config(page_title="Scientesis", page_icon="🔬", layout="wide")
@@ -29,8 +32,8 @@ ARTIFACTS_DIR = PROJECT_ROOT / "artifacts"
 st.title("Scientesis")
 st.caption("Human-guided research lab · reproducible RL experiments · simulation only")
 
-overview_tab, target_tab, proposal_tab, results_tab, dataset_tab, evidence_tab, decision_tab, notebook_tab = st.tabs(
-    ["Research overview", "Research target", "Propose & approve", "Runs & critique", "Data intake", "Evidence", "Decision center", "Lab notebook"]
+overview_tab, planner_tab, synthesis_tab, target_tab, proposal_tab, results_tab, dataset_tab, evidence_tab, decision_tab, notebook_tab = st.tabs(
+    ["Research overview", "Planner", "LLM synthesis", "Research target", "Propose & approve", "Runs & critique", "Data intake", "Evidence", "Decision center", "Lab notebook"]
 )
 
 with overview_tab:
@@ -47,6 +50,12 @@ with overview_tab:
         "That is a simulation proxy, not evidence of physical-robot safety."
     )
     st.caption(f"Database: `{repository.database_path}` · Only explicitly approved experiments can run.")
+
+with planner_tab:
+    render_planner_tab(repository, project_id)
+
+with synthesis_tab:
+    render_synthesis_tab(repository, project_id, PROJECT_ROOT)
 
 with target_tab:
     render_research_target_tab(repository, project_id)
@@ -173,6 +182,7 @@ with results_tab:
         st.info(latest_critic["recommended_next_action"]["reason"])
         st.caption("The recommended next action is not authorization; a human must approve new work.")
         render_interpretation_tab_section(repository, project_id, latest_critic)
+    render_lab_director_section(repository, project_id, PROJECT_ROOT)
 
 with dataset_tab:
     render_dataset_tab(repository, project_id)
