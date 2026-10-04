@@ -4838,3 +4838,25 @@ and the original remained unchanged. This is a source fix, not a published beta.
   encountered Codex's retained native writer after unsubscribe; that probe is
   failed, and genuine cross-process credential handoff remains unaccepted.
   No public release, installed-app replacement, or live-service deployment.
+
+## 2026-10-04 — AI Lab isolated source branch
+
+- Added the active Literature/Idea workflow, compact paper/findings view, exact
+  source archive boundaries, and a separate research workbench for the supplied
+  source and paired numerical action families. Explicit model roles, hypothesis
+  revisions, human feedback, budgets, dependency invalidation and record restore
+  retain their distinct authority.
+- Added up to three explicitly enabled same-campaign branches. A required answer
+  blocks its branch/dependents while an unrelated branch can run; each executed
+  action freezes its input and dependency receipts against shared budgets.
+- Validation: 386 integrated backend tests; 10 release methods (partially
+  overlapping), unchanged original three independent defect regressions; actual
+  desktop typecheck/build/output checks. Three synthetic native branch runs and
+  one real Analyst job were captured and checked by 179 record/CAS assertions.
+- The source launch entry was tested against the already running isolated app.
+  Installed AgentsDock and old projects were not upgraded or restarted.
+- Full v0.5 remains PARTIAL. Necessary-evidence native resolver/tokenizer
+  admission, general external scientific execution and scientific performance
+  evaluation remain incomplete. Candidate-5 exact original-file UI read found
+  a same-text provenance ambiguity; its failure is preserved separately from
+  older successful save/cancel evidence. See [acceptance scope](AI_LAB_ACCEPTANCE.md).

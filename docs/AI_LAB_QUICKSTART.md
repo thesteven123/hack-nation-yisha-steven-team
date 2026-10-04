@@ -18,7 +18,7 @@
 
 ## 环境与源码构建
 
-Windows 需要 **PowerShell 7、Node.js 22+、pnpm**。依赖版本以 `electron/package.json` 的 `packageManager` 和 `pnpm-lock.yaml` 为准。脚本优先找 PATH 中的 PowerShell 7，再找标准安装路径和现有 Codex bundled runtime；找不到会直接说明，不会自动安装。
+Windows 需要 **PowerShell 7、Node.js 22+、pnpm**。已核对当前 `electron/package.json`：包管理器为 `pnpm@11.9.0`，提供 `typecheck`（`tsc --noEmit`）和 `build`（Electron 编译及输出校验）脚本；依赖版本以 `pnpm-lock.yaml` 为准。启动入口优先找 PATH 中的 PowerShell 7，再找标准安装路径和现有 Codex bundled runtime；找不到会直接说明，不会自动安装。
 
 在仓库根用 PowerShell 7 准备源码构建：
 
@@ -33,7 +33,7 @@ Set-Location ..
 
 已有依赖时也可以在 `electron` 中执行 `npm run typecheck`、`npm run build`；依赖安装仍推荐使用仓库的 pnpm 锁文件。启动脚本不会自动安装依赖、编译或生成安装包。更多源码说明见 [Electron README](../electron/README.md)。
 
-服务需要 WSL 中可用的 Linux 环境、**Python 3.10+** 的独立虚拟环境及 [server/pyproject.toml](../server/pyproject.toml) 依赖。同一 WSL 用户须已有 `codex` CLI 和有效原生登录；启动会把登录凭据复制到独立 CLI home，研究会消耗该账号的模型额度。它不会复制原会话、项目或 MCP 配置。
+服务需要 WSL 中可用的 Linux 环境及独立虚拟环境；已核对 [server/pyproject.toml](../server/pyproject.toml)，Python 要求为 **`>=3.10`**，还须安装其中声明的依赖。同一 WSL 用户须已有 `codex` CLI 和有效原生登录；启动会把登录凭据复制到独立 CLI home，研究会消耗该账号的模型额度。它不会复制原会话、项目或 MCP 配置。
 
 本机入口默认使用 `Ubuntu` / `agentsdock`、Python `/home/agentsdock/.cache/agentsdock-ai-lab-dev/server-venv/bin/python`，开发状态位于 `/home/agentsdock/.cache/agentsdock-idea-lab-dev`。Windows 开发配置位于 `%LOCALAPPDATA%\Programs\AgentsDockIdeaLabData`。移动仓库后脚本从自己的位置寻找源码；新机器须先准备上述环境，或传入 `-WslDistribution`、`-WslUser`、`-ServerPython`、`-ServerRoot`。
 
@@ -43,4 +43,4 @@ Set-Location ..
 
 自测覆盖客户端/原生 HTTP 请求形状、历史证据的精确身份、原件字节与响应校验、取消及服务器切换归属、分支共享额度/依赖/局部等待，以及类型检查和生产编译。合成输入、受控服务和组件测试只说明各自经过的边界；实际开发窗口到服务的完整流程需另行记录验收。
 
-**E4 的完整对照与消融评估、跨任务族的泛化实验仍未完成。** 已接入的有限方法与演示不证明适用于所有科研任务，也不证明科学发现、独立复现或效率提升幅度。完整科研状态、来源与工程限制见 [Idea Lab](../server/docs/IDEA_LAB.md)、[分支设计与验收](../server/docs/RESEARCH_BRANCHES_DESIGN.md) 和 [应用开发验收要求](APP_DEV_OPERATIONS.md)。
+**Research model 调用中按需读取已保存完整证据的工具链（E4）尚未完成 resolver 接入与备份证明；跨任务族的泛化实验仍未完成。** 当前模型拿到的摘要或有限材料不代表它已按需读取全部保存证据。已接入的有限方法与演示不证明适用于所有科研任务，也不证明科学发现、独立复现或效率提升幅度。完整科研状态、来源与工程限制见 [Idea Lab](../server/docs/IDEA_LAB.md)、[分支设计与验收](../server/docs/RESEARCH_BRANCHES_DESIGN.md) 和 [应用开发验收要求](APP_DEV_OPERATIONS.md)。
